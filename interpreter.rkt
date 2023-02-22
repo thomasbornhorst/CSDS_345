@@ -13,29 +13,13 @@
     (cond
       ((null? tree) state)
       ((eq? (car (car tree)) 'var) (Mvar (car tree) state (lambda (s) (parserMain (cdr tree) s))))
-      ((eq? (car (car tree)) 'if) '())
-      ((eq? (car (car tree)) 'while) '())
+      ((eq? (car (car tree)) 'if) (Mif (car tree) state (lambda (s) (parserMain (cdr tree) s))))
+      ((eq? (car (car tree)) 'while) (Mwhile (car tree) state (lambda (s) (parserMain (cdr tree) s))))
       ((eq? (car (car tree)) 'return) (Mreturn (car tree) state))
       ((eq? (car (car tree)) '=) (Mval (car tree) state (lambda (s) (parserMain (cdr tree) s))))
       (else (error 'norelop "No relevant operations found")))))
 
  ; the following comparison operators are implemented: ==, !=, <, >, <=. >=, and the following boolean operators: &&, ||, !
-
-
-; TODO: figure out issue with &&
-; ! op included in Mexpr checks
-(define Mcondition
-  (lambda (condition state)
-    (cond
-      ((eq? (operator condition) '==) (eq?    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '!=) (not (eq?    (leftoperand condition) (rightoperand condition))))
-      ((eq? (operator condition) '<) (<    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '>) (>    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '<=) (<=    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '>=) (>=    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '&&) (and    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '||) (or    (leftoperand condition) (rightoperand condition)))
-      (else (error 'unknownop "Bad Operator")))))
 
 (define Mvar
   (lambda (expr state return)
@@ -55,12 +39,17 @@
       (else (getVal (leftoperand expr) state)))))
 
 (define Mif
-  (lambda (stmt state)
-    (if (Mexpr (leftoperand stmt) (lambda (v) v))
-        (parserMain (rightoperand stmt) state)
+  (lambda (stmt state return)
+    (if (Mexpr (leftoperand stmt) state (lambda (v) v))
+        (return (parserMain (list (rightoperand stmt)) state))
         (if (not (null? (thirdoperand stmt)))
-            (parserMain (thirdoperand stmt) state (lambda (v) v))
-            '()))))
+            (return (parserMain (list (thirdoperand stmt)) state))
+            (return state)))))
+
+(define Mwhile
+  (lambda (stmt state return)
+    (if (Mexpr (leftoperand stmt) state (lambda (v) v))
+        (Mwhile stmt (parserMain (list (rightoperand stmt)) state) return) (return state))))
 
 (define Mexpr
   (lambda (expr state return)
@@ -69,7 +58,7 @@
       [(not (list? expr)) (return (singleExprVal expr state))]
       [(eq? (operator expr) '!) (return (not (Mexpr (leftoperand expr) state)))]
       [(list? (leftoperand expr)) (if (list? (rightoperand expr)) (Mexpr (leftoperand expr) state (lambda (v1) (Mexpr (rightoperand expr) state (lambda (v2) (Mexpr (combineExprParts (operator expr) v1 v2) state return))))) ; change this lambda to just "return"?
-                                      (Mexpr (leftoperand expr) state (lambda (v1) (Mexpr (combineExprParts (operator expr) v1 (rightoperand expr) state return)))))]
+                                      (Mexpr (leftoperand expr) state (lambda (v1) (Mexpr (combineExprParts (operator expr) v1 (rightoperand expr)) state return))))]
       [(list? (rightoperand expr)) (Mexpr (rightoperand expr) state (lambda (v2) (Mexpr (combineExprParts (operator expr) (leftoperand expr) v2) state return)))]
       [else (return (Minteger (combineExprParts (operator expr) (singleExprVal (leftoperand expr) state) (singleExprVal (rightoperand expr) state)) state))])))
 
@@ -95,6 +84,21 @@
       ((eq? (operator expr) '%) (remainder (leftoperand expr) (rightoperand expr)))
       (else (Mcondition expr state)))))
 
+; TODO: figure out issue with &&
+; ! op included in Mexpr checks
+(define Mcondition
+  (lambda (condition state)
+    (cond
+      ((eq? (operator condition) '==) (eq?    (leftoperand condition) (rightoperand condition)))
+      ((eq? (operator condition) '!=) (not (eq?    (leftoperand condition) (rightoperand condition))))
+      ((eq? (operator condition) '<) (<    (leftoperand condition) (rightoperand condition)))
+      ((eq? (operator condition) '>) (>    (leftoperand condition) (rightoperand condition)))
+      ((eq? (operator condition) '<=) (<=    (leftoperand condition) (rightoperand condition)))
+      ((eq? (operator condition) '>=) (>=    (leftoperand condition) (rightoperand condition)))
+      ((eq? (operator condition) '&&) (and    (leftoperand condition) (rightoperand condition)))
+      ((eq? (operator condition) '||) (or    (leftoperand condition) (rightoperand condition)))
+      (else (error 'unknownop "Bad Operator")))))
+
 ; helper functions to abstract the details and get the denotational code above to read better
 (define operator
   (lambda (expression)
@@ -106,7 +110,7 @@
 
 (define thirdoperand
   (lambda (stmt)
-    (if (null? (cdr(cdr(cdr(stmt))))) '()
+    (if (null? (cdr(cdr(cdr stmt)))) '()
         (cadddr stmt))))
 
 (define declrightoperand

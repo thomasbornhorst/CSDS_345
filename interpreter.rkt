@@ -1,3 +1,5 @@
+; Group 27: Tyler Avery, Thomas Bornhorst
+
 #lang racket
 (require "simpleParser.rkt")
 
@@ -33,10 +35,14 @@
 
 (define Mreturn
   (lambda (expr state)
+    (Mexpr (leftoperand expr) state (lambda (v) (convertReturn v)))))
+
+(define convertReturn
+  (lambda (val)
     (cond
-      ((list? (leftoperand expr)) (Mexpr (leftoperand expr) state (lambda (v) v)))
-      ((number? (leftoperand expr)) (leftoperand expr))
-      (else (getVal (leftoperand expr) state)))))
+      [(eq? val #t) 'true]
+      [(eq? val #f) 'false]
+      [else val])))
 
 (define Mif
   (lambda (stmt state return)
@@ -56,11 +62,17 @@
     (cond
       [(null? expr) (return '())]
       [(not (list? expr)) (return (singleExprVal expr state))]
-      [(eq? (operator expr) '!) (return (not (Mexpr (leftoperand expr) state)))]
+      [(isOneOperand? expr) (singleOperandExpr expr state return)]
       [(list? (leftoperand expr)) (if (list? (rightoperand expr)) (Mexpr (leftoperand expr) state (lambda (v1) (Mexpr (rightoperand expr) state (lambda (v2) (Mexpr (combineExprParts (operator expr) v1 v2) state return))))) ; change this lambda to just "return"?
                                       (Mexpr (leftoperand expr) state (lambda (v1) (Mexpr (combineExprParts (operator expr) v1 (rightoperand expr)) state return))))]
       [(list? (rightoperand expr)) (Mexpr (rightoperand expr) state (lambda (v2) (Mexpr (combineExprParts (operator expr) (leftoperand expr) v2) state return)))]
       [else (return (Minteger (combineExprParts (operator expr) (singleExprVal (leftoperand expr) state) (singleExprVal (rightoperand expr) state)) state))])))
+
+(define singleOperandExpr
+  (lambda (expr state return)
+    (cond
+      [(eq? (operator expr) '!) (Mexpr (leftoperand expr) state (lambda (v) (return (not v))))]
+      [(eq? (operator expr) '-) (Mexpr (leftoperand expr) state (lambda (v) (return (* v -1))))])))
 
 (define singleExprVal
   (lambda (expr state)
@@ -77,6 +89,7 @@
 (define Minteger
   (lambda (expr state)
     (cond
+      ((or (null? (leftoperand expr)) (null? (rightoperand expr))) (error 'varnotassgn "Variable not yet assigned"))
       ((eq? (operator expr) '+) (+         (leftoperand expr) (rightoperand expr)))
       ((eq? (operator expr) '-) (-         (leftoperand expr) (rightoperand expr)))
       ((eq? (operator expr) '*) (*         (leftoperand expr) (rightoperand expr)))
@@ -119,6 +132,10 @@
         '()
         (rightoperand expression))))
 
+(define isOneOperand?
+  (lambda (expr)
+    (null? (cdr (cdr expr)))))
+
 (define combineExprParts
   (lambda (operator leftoperand rightoperand)
     (cons operator (cons leftoperand (list rightoperand)))))
@@ -132,7 +149,9 @@
 
 (define declareVar
   (lambda (var val state)
-    (cons (cons var (list val)) state)))
+    (if (isDeclared? var state)
+        (error 'vardeclaredtwice "Variable already declared")
+        (cons (cons var (list val)) state))))
 
 (define newStateEntry ; Fix? or just don't use?
   (lambda (var val)
@@ -145,7 +164,7 @@
 (define getVal
   (lambda (var state)
     (cond
-      ((null? state) (error 'noval "No value found")) ; add name of var to error stmt?
+      ((null? state) (error 'varnotdeclared "Variable not yet declared")) ; add name of var to error stmt?
       ((eq? var (car(car state))) (cadr (car state)))
       (else (getVal var (cdr state))))))
 
@@ -155,12 +174,5 @@
       ((null? state) (error 'varnotdeclared "Variable not yet declared"))
       ((eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state)))) ; abstract the var eq part?
       (else (updateVarCPS var val (cdr state) (lambda (v) (cons (car state) v)))))))
-
-(define returnVal ; implement this as just calling getVal? - remove this method entirely and just call getVal from parserMain?
-  (lambda (state)
-    (cond
-      ((null? state) (error 'noreturnstmnt "No return value found"))
-      ((eq? 'return (car(car state))) (cadr (car state)))
-      (else (returnVal (cdr state))))))
 
 (parserMain (parser testFile) '())

@@ -11,7 +11,7 @@
 (define parserMain
   (lambda (tree state)
     (cond
-      ((null? tree) state)
+      ((null? tree) (returnVal state))
       ((eq? (car (car tree)) 'var) (Mvar (car tree) state (lambda (s) (parserMain (cdr tree) s))))
       ((eq? (car (car tree)) 'if) '())
       ((eq? (car (car tree)) 'while) '())
@@ -54,14 +54,6 @@
       ((number? (leftoperand expr)) (leftoperand expr))
       (else (getVal (leftoperand expr) state)))))
 
-(define Mif
-  (lambda (stmt state)
-    (if (Mexpr (leftoperand stmt) (lambda (v) v))
-        (parserMain (rightoperand stmt) state)
-        (if (not (null? (thirdoperand stmt)))
-            (parserMain (thirdoperand stmt) state (lambda (v) v))
-            '()))))
-
 (define Mexpr
   (lambda (expr state return)
     (cond
@@ -103,11 +95,6 @@
 (define leftoperand cadr)
 
 (define rightoperand caddr)
-
-(define thirdoperand
-  (lambda (stmt)
-    (if (null? (cdr(cdr(cdr(stmt))))) '()
-        (cadddr stmt))))
 
 (define declrightoperand
   (lambda (expression)

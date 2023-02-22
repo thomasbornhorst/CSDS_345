@@ -7,9 +7,6 @@
 
 (parser testFile)
 
-; TODO: Add if and while - To do that, first need to add Mconditional
-; 'true vs #t
-
 (define parserMain
   (lambda (tree state)
     (cond
@@ -20,8 +17,6 @@
       ((eq? (car (car tree)) 'return) (Mreturn (car tree) state))
       ((eq? (car (car tree)) '=) (Mval (car tree) state (lambda (s) (parserMain (cdr tree) s))))
       (else (error 'norelop "No relevant operations found")))))
-
- ; the following comparison operators are implemented: ==, !=, <, >, <=. >=, and the following boolean operators: &&, ||, !
 
 (define Mvar
   (lambda (expr state return)
@@ -84,8 +79,7 @@
       [(number? expr) expr]
       [else (getVal expr state)])))
 
-; Actually, the interpreter will be in prefix form
-; (* (+ 4 5) (- 10 6))
+; Math operations
 (define Minteger
   (lambda (expr state)
     (cond
@@ -97,7 +91,7 @@
       ((eq? (operator expr) '%) (remainder (leftoperand expr) (rightoperand expr)))
       (else (Mcondition expr state)))))
 
-; TODO: figure out issue with &&
+; Conditional operators
 ; ! op included in Mexpr checks
 (define Mcondition
   (lambda (condition state)
@@ -153,10 +147,6 @@
         (error 'vardeclaredtwice "Variable already declared")
         (cons (cons var (list val)) state))))
 
-(define newStateEntry ; Fix? or just don't use?
-  (lambda (var val)
-    ((cons var (list val)))))
-
 (define updateVar
   (lambda (var val state)
     (updateVarCPS var val state (lambda (v) v))))
@@ -164,7 +154,7 @@
 (define getVal
   (lambda (var state)
     (cond
-      ((null? state) (error 'varnotdeclared "Variable not yet declared")) ; add name of var to error stmt?
+      ((null? state) (error 'varnotdeclared "Variable not yet declared"))
       ((eq? var (car(car state))) (cadr (car state)))
       (else (getVal var (cdr state))))))
 
@@ -172,7 +162,7 @@
   (lambda (var val state return)
     (cond
       ((null? state) (error 'varnotdeclared "Variable not yet declared"))
-      ((eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state)))) ; abstract the var eq part?
+      ((eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state))))
       (else (updateVarCPS var val (cdr state) (lambda (v) (cons (car state) v)))))))
 
 (parserMain (parser testFile) '())

@@ -13,13 +13,13 @@
 (define parserMain
   (lambda (tree state)
     (cond
-      ((null? tree) state)
-      ((eq? (car (car tree)) 'var) (variableType (car tree) state (lambda (s) (parserMain (cdr tree) s))))
-      ((eq? (car (car tree)) 'if) (ifStatement (car tree) state (lambda (s) (parserMain (cdr tree) s))))
-      ((eq? (car (car tree)) 'while) (whileLoop (car tree) state (lambda (s) (parserMain (cdr tree) s))))
-      ((eq? (car (car tree)) 'return) (returnOutput (car tree) state))
-      ((eq? (car (car tree)) '=) (variableValue (car tree) state (lambda (s) (parserMain (cdr tree) s))))
-      (else (error 'norelop "No relevant operations found")))))
+      [(null? tree) state]
+      [(eq? (operator (car tree)) 'var) (variableType (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
+      [(eq? (operator (car tree)) 'if) (ifStatement (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
+      [(eq? (operator (car tree)) 'while) (whileLoop (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
+      [(eq? (operator (car tree)) 'return) (returnOutput (car tree) state)]
+      [(eq? (operator (car tree)) '=) (variableValue (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
+      [else (error 'norelop "No relevant statements found")])))
 
 ;implementation of an if statement
 (define ifStatement
@@ -46,9 +46,7 @@
 ;sets the value of a variable
 (define variableValue
   (lambda (expr state return)
-    (if (eq? (operator expr) '=)
-         (processExpression (rightoperand expr) state (lambda (v) (return (updateVar (leftoperand expr) v state))))
-        (return state))))
+    (processExpression (rightoperand expr) state (lambda (v) (return (updateVar (leftoperand expr) v state))))))
 
 ;checks whether a given variable is declared
 (define isDeclared
@@ -74,17 +72,17 @@
 (define getVal
   (lambda (var state)
     (cond
-      ((null? state) (error 'varnotdeclared "Variable not yet declared"))
-      ((eq? var (car(car state))) (cadr (car state)))
-      (else (getVal var (cdr state))))))
+      [(null? state) (error 'varnotdeclared "Variable not yet declared")]
+      [(eq? var (car(car state))) (cadr (car state))]
+      [else (getVal var (cdr state))])))
 
 ;updates the value of an already defined variable with CPS
 (define updateVarCPS
   (lambda (var val state return)
     (cond
-      ((null? state) (error 'varnotdeclared "Variable not yet declared"))
-      ((eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state))))
-      (else (updateVarCPS var val (cdr state) (lambda (v) (cons (car state) v)))))))
+      [(null? state) (error 'varnotdeclared "Variable not yet declared")]
+      [(eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state)))]
+      [else (updateVarCPS var val (cdr state) (lambda (v) (cons (car state) v)))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;symbol definitions;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -92,13 +90,13 @@
 (define integerType
   (lambda (expr state)
     (cond
-      ((or (null? (leftoperand expr)) (null? (rightoperand expr))) (error 'varnotassgn "Variable not yet assigned"))
-      ((eq? (operator expr) '+) (+         (leftoperand expr) (rightoperand expr)))
-      ((eq? (operator expr) '-) (-         (leftoperand expr) (rightoperand expr)))
-      ((eq? (operator expr) '*) (*         (leftoperand expr) (rightoperand expr)))
-      ((eq? (operator expr) '/) (quotient  (leftoperand expr) (rightoperand expr)))
-      ((eq? (operator expr) '%) (remainder (leftoperand expr) (rightoperand expr)))
-      (else (conditionalOperator expr state)))))
+      [(or (null? (leftoperand expr)) (null? (rightoperand expr))) (error 'varnotassgn "Variable not yet assigned")]
+      [(eq? (operator expr) '+) (+         (leftoperand expr) (rightoperand expr))]
+      [(eq? (operator expr) '-) (-         (leftoperand expr) (rightoperand expr))]
+      [(eq? (operator expr) '*) (*         (leftoperand expr) (rightoperand expr))]
+      [(eq? (operator expr) '/) (quotient  (leftoperand expr) (rightoperand expr))]
+      [(eq? (operator expr) '%) (remainder (leftoperand expr) (rightoperand expr))]
+      [else (conditionalOperator expr state)])))
 
 ;defines behavior for conditional operators
 ;! op included in processExpression checks

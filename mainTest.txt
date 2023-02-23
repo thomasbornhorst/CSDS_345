@@ -1,8 +1,6 @@
-var x = 100 % 2 == 0;
-var y = 10 >= 20;
-var z;
-if (x || y)
-  z = y;
-else
-  z = x;
-return z;
+var x = 20;
+var y = 128;
+while (x * x > 128)
+  x = x - 1;
+x = x + 1;
+return x;

@@ -1,4 +1,10 @@
-; Group 27: Tyler Avery, Thomas Bornhorst
+;;;; ***************************************************
+;;;; Group 27
+;;;; Tyler Avery (tma58)
+;;;; Thomas Bornhorst (thb34)
+;;;; CSDS 345 Spring 2023
+;;;; Simple Language Interpreter Project, Part 1
+;;;; ***************************************************
 
 #lang racket
 (require "simpleParser.rkt")
@@ -7,121 +13,126 @@
 
 (parser testFile)
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main parser functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main interpreter functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;define behavior for various keywords
-(define parserMain
+;define behavior for various keywords of statements
+(define interpreter-main
   (lambda (tree state)
     (cond
       [(null? tree) state]
-      [(eq? (operator (car tree)) 'var) (variableType (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
-      [(eq? (operator (car tree)) 'if) (ifStatement (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
-      [(eq? (operator (car tree)) 'while) (whileLoop (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
-      [(eq? (operator (car tree)) 'return) (returnOutput (car tree) state)]
-      [(eq? (operator (car tree)) '=) (variableValue (car tree) state (lambda (s) (parserMain (cdr tree) s)))]
+      [(eq? (operator (first-stmt tree)) 'var) (state-declaration (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
+      [(eq? (operator (first-stmt tree)) 'if) (state-if (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
+      [(eq? (operator (first-stmt tree)) 'while) (state-while (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
+      [(eq? (operator (first-stmt tree)) 'return) (value-return (first-stmt tree) state)]
+      [(eq? (operator (first-stmt tree)) '=) (state-assignmnet (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
       [else (error 'norelop "No relevant statements found")])))
 
 ;implementation of an if statement
-(define ifStatement
+(define state-if
   (lambda (stmt state return)
-    (if (processExpression (leftoperand stmt) state (lambda (v) v))
-        (return (parserMain (list (rightoperand stmt)) state))
-        (if (not (null? (thirdoperand stmt)))
-            (return (parserMain (list (thirdoperand stmt)) state))
+    (if (value-process-expression (first-operand stmt) state (lambda (v) v))
+        (return (interpreter-main (list (second-operand stmt)) state))
+        (if (not (null? (third-operand stmt)))
+            (return (interpreter-main (list (third-operand stmt)) state))
             (return state)))))
 
 ;implementation of a while loop
-(define whileLoop
+(define state-while
   (lambda (stmt state return)
-    (if (processExpression (leftoperand stmt) state (lambda (v) v))
-        (whileLoop stmt (parserMain (list (rightoperand stmt)) state) return) (return state))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    (if (value-process-expression (first-operand stmt) state (lambda (v) v))
+        (state-while stmt (interpreter-main (list (second-operand stmt)) state) return) (return state))))
 
 ;function that defines variables as used in the interpreter
-(define variableType
+(define state-declaration
   (lambda (expr state return)
-    (processExpression (declrightoperand expr) state (lambda (v) (return (declareVar (leftoperand expr) v state))))))
+    (value-process-expression (decl-right-operand expr) state (lambda (v) (return (state-var-declaration (left-operand expr) v state))))))
 
 ;sets the value of a variable
-(define variableValue
+(define state-assignmnet
   (lambda (expr state return)
-    (processExpression (rightoperand expr) state (lambda (v) (return (updateVar (leftoperand expr) v state))))))
+    (value-process-expression (right-operand expr) state (lambda (v) (return (state-update-var (left-operand expr) v state))))))
+
+;returns the result of an expression
+(define value-return
+  (lambda (expr state)
+    (value-process-expression (first-operand expr) state (lambda (v) (value-convert-return v)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;checks whether a given variable is declared
-(define isDeclared
+(define var-is-declared?
   (lambda (var state)
     (cond
       ((null? state) #f)
       ((eq? var (car(car state))) #t)
-      (else (isDeclared var (cdr state))))))
+      (else (var-is-declared? var (cdr state))))))
 
 ;declares a variable
-(define declareVar
+(define state-var-declaration
   (lambda (var val state)
-    (if (isDeclared var state)
+    (if (var-is-declared? var state)
         (error 'vardeclaredtwice "Variable already declared")
         (cons (cons var (list val)) state))))
 
 ;updates the value of an already defined variable
-(define updateVar
+(define state-update-var
   (lambda (var val state)
-    (updateVarCPS var val state (lambda (v) v))))
-
-;gets value of variable
-(define getVal
-  (lambda (var state)
-    (cond
-      [(null? state) (error 'varnotdeclared "Variable not yet declared")]
-      [(eq? var (car(car state))) (cadr (car state))]
-      [else (getVal var (cdr state))])))
+    (state-update-var-CPS var val state (lambda (v) v))))
 
 ;updates the value of an already defined variable with CPS
-(define updateVarCPS
+(define state-update-var-CPS
   (lambda (var val state return)
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
       [(eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state)))]
-      [else (updateVarCPS var val (cdr state) (lambda (v) (cons (car state) v)))])))
+      [else (state-update-var-CPS var val (cdr state) (lambda (v) (cons (car state) v)))])))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;symbol definitions;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;gets value of variable
+(define value-get-var
+  (lambda (var state)
+    (cond
+      [(null? state) (error 'varnotdeclared "Variable not yet declared")]
+      [(eq? var (car(car state))) (cadr (car state))]
+      [else (value-get-var var (cdr state))])))
+
+;return the starting state
+(define state-init
+  (lambda ()
+    '()))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;integer and conditional operations;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;defines behavior for integer operations
-(define integerType
+(define value-integer-operations
   (lambda (expr state)
     (cond
-      [(or (null? (leftoperand expr)) (null? (rightoperand expr))) (error 'varnotassgn "Variable not yet assigned")]
-      [(eq? (operator expr) '+) (+         (leftoperand expr) (rightoperand expr))]
-      [(eq? (operator expr) '-) (-         (leftoperand expr) (rightoperand expr))]
-      [(eq? (operator expr) '*) (*         (leftoperand expr) (rightoperand expr))]
-      [(eq? (operator expr) '/) (quotient  (leftoperand expr) (rightoperand expr))]
-      [(eq? (operator expr) '%) (remainder (leftoperand expr) (rightoperand expr))]
-      [else (conditionalOperator expr state)])))
+      [(or (null? (left-operand expr)) (null? (right-operand expr))) (error 'varnotassgn "Variable not yet assigned")]
+      [(eq? (operator expr) '+) (+         (left-operand expr) (right-operand expr))]
+      [(eq? (operator expr) '-) (-         (left-operand expr) (right-operand expr))]
+      [(eq? (operator expr) '*) (*         (left-operand expr) (right-operand expr))]
+      [(eq? (operator expr) '/) (quotient  (left-operand expr) (right-operand expr))]
+      [(eq? (operator expr) '%) (remainder (left-operand expr) (right-operand expr))]
+      [else (value-conditional-operations expr state)]))) ; if not an integer operation, pass to conditional operations
 
 ;defines behavior for conditional operators
 ;! op included in processExpression checks
-(define conditionalOperator
+(define value-conditional-operations
   (lambda (condition state)
     (cond
-      ((eq? (operator condition) '==) (eq?    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '!=) (not (eq?    (leftoperand condition) (rightoperand condition))))
-      ((eq? (operator condition) '<) (<    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '>) (>    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '<=) (<=    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '>=) (>=    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '&&) (and    (leftoperand condition) (rightoperand condition)))
-      ((eq? (operator condition) '||) (or    (leftoperand condition) (rightoperand condition)))
+      ((eq? (operator condition) '==) (eq?      (left-operand condition) (right-operand condition)))
+      ((eq? (operator condition) '!=) (not (eq? (left-operand condition) (right-operand condition))))
+      ((eq? (operator condition) '<) (<         (left-operand condition) (right-operand condition)))
+      ((eq? (operator condition) '>) (>         (left-operand condition) (right-operand condition)))
+      ((eq? (operator condition) '<=) (<=       (left-operand condition) (right-operand condition)))
+      ((eq? (operator condition) '>=) (>=       (left-operand condition) (right-operand condition)))
+      ((eq? (operator condition) '&&) (and      (left-operand condition) (right-operand condition)))
+      ((eq? (operator condition) '||) (or       (left-operand condition) (right-operand condition)))
       (else (error 'unknownop "Bad Operator")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;expression processing;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;returns the result of an expression
-(define returnOutput
-  (lambda (expr state)
-    (processExpression (leftoperand expr) state (lambda (v) (convertReturn v)))))
-
 ;returns 'true' and 'false' rather than '#t' and '#f"
-(define convertReturn
+(define value-convert-return
   (lambda (val)
     (cond
       [(eq? val #t) 'true]
@@ -129,26 +140,34 @@
       [else val])))
 
 ;proccesses a given expression
-(define processExpression
+(define value-process-expression
   (lambda (expr state return)
     (cond
       [(null? expr) (return '())]
-      [(not (list? expr)) (return (singleExprVal expr state))]
-      [(isOneOperand? expr) (singleOperandExpr expr state return)]
-      [(list? (leftoperand expr)) (if (list? (rightoperand expr)) (processExpression (leftoperand expr) state (lambda (v1) (processExpression (rightoperand expr) state (lambda (v2) (processExpression (assembleExpression (operator expr) v1 v2) state return))))) ; change this lambda to just "return"?
-                                      (processExpression (leftoperand expr) state (lambda (v1) (processExpression (assembleExpression (operator expr) v1 (rightoperand expr)) state return))))]
-      [(list? (rightoperand expr)) (processExpression (rightoperand expr) state (lambda (v2) (processExpression (assembleExpression (operator expr) (leftoperand expr) v2) state return)))]
-      [else (return (integerType (assembleExpression (operator expr) (singleExprVal (leftoperand expr) state) (singleExprVal (rightoperand expr) state)) state))])))
+      [(not (list? expr)) (return (value-single-expr expr state))] ; if just a value
+      [(is-one-operand? expr) (value-single-operand-expr expr state return)] ; if only one operand
+      [(list? (left-operand expr)) (if (list? (right-operand expr)) ; if left-operand is a list (nested expression), recurse through it - if right-operand is a list, recurse through it
+                                       (value-process-expression (left-operand expr) state
+                                                                 (lambda (v1) (value-process-expression (right-operand expr) state
+                                                                                                        (lambda (v2) (value-process-expression
+                                                                                                                      (value-assemble-expression (operator expr) v1 v2) state return))))) ; both operands are lists
+                                      (value-process-expression (left-operand expr) state
+                                                                (lambda (v1) (value-process-expression (value-assemble-expression (operator expr) v1 (right-operand expr)) state return))))] ; only left-operand is a list
+      [(list? (right-operand expr)) (value-process-expression (right-operand expr) state
+                                                              (lambda (v2) (value-process-expression (value-assemble-expression (operator expr) (left-operand expr) v2) state return)))] ; only right-operand is a list
+      [else (return (value-integer-operations (value-assemble-expression (operator expr) ; (essentially the base case) if neither are lists, make sure each operand is a value and pass to integer/conditional operations functions
+                                                                         (value-single-expr (left-operand expr) state)
+                                                                         (value-single-expr (right-operand expr) state)) state))])))
 
 ;processes the result of an expression with one operand
-(define singleOperandExpr
+(define value-single-operand-expr
   (lambda (expr state return)
     (cond
-      [(eq? (operator expr) '!) (processExpression (leftoperand expr) state (lambda (v) (return (not v))))]
-      [(eq? (operator expr) '-) (processExpression (leftoperand expr) state (lambda (v) (return (* v -1))))])))
+      [(eq? (operator expr) '!) (value-process-expression (first-operand expr) state (lambda (v) (return (not v))))]
+      [(eq? (operator expr) '-) (value-process-expression (first-operand expr) state (lambda (v) (return (* v -1))))])))
 
 ;returns the value of an expression with one element
-(define singleExprVal
+(define value-single-expr
   (lambda (expr state)
     (cond
       [(eq? expr 'false) #f]
@@ -156,40 +175,57 @@
       [(eq? expr #f) #f]
       [(eq? expr #t) #t]
       [(number? expr) expr]
-      [else (getVal expr state)])))
+      [else (value-get-var expr state)])))
 
 ;helper functions to abstract the details and get the denotational code above to read better
 (define operator
   (lambda (expression)
     (car expression)))
 
-;defines the left operand as the cadr of the expression
-(define leftoperand cadr)
+;defines the left-operand as the cadr of the expression
+(define left-operand cadr)
 
-;define rightoperand as the caddr of the expression
-(define rightoperand caddr)
+;define right-operand as the caddr of the expression
+(define right-operand caddr)
 
-;define thirdoperand
-(define thirdoperand
+;defines the first-operand as the same as the left-operand (for readability and clarity)
+(define first-operand left-operand)
+
+;defines the second-operand as the same as the right-operand (for readability and clarity)
+(define second-operand right-operand)
+
+;define third-operand
+(define third-operand
   (lambda (stmt)
     (if (null? (cdr(cdr(cdr stmt)))) '()
         (cadddr stmt))))
 
-;declares the right operand of the expression
-(define declrightoperand
+;gets right operand of a declaration expression
+(define decl-right-operand
   (lambda (expression)
     (if (null? (cdr (cdr expression)))
         '()
-        (rightoperand expression))))
+        (right-operand expression))))
+
+;first statement of syntax tree
+(define first-stmt
+  (lambda (tree)
+    (car tree)))
+
+;list of all other statements of syntax tree after the first statement
+(define other-stmts
+  (lambda (stmt)
+    (cdr stmt)))
 
 ;checks whether an expression has one operand
-(define isOneOperand?
+(define is-one-operand?
   (lambda (expr)
     (null? (cdr (cdr expr)))))
 
-;combines combines the parts of an expression into the "state" format
-(define assembleExpression
-  (lambda (operator leftoperand rightoperand)
-    (cons operator (cons leftoperand (list rightoperand)))))
+;combines combines the parts of an expression into the appropriate (operator left-operand right-operand) format
+(define value-assemble-expression
+  (lambda (operator left-operand right-operand)
+    (cons operator (cons left-operand (list right-operand)))))
 
-(parserMain (parser testFile) '())
+;main interpreter call
+(interpreter-main (parser testFile) (state-init))

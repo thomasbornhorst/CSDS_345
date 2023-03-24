@@ -185,6 +185,7 @@
     (cond
       [(eq? val #t) 'true]
       [(eq? val #f) 'false]
+      [(null? val) (error 'returnbeforeinit "Can't return value before initializing it")]
       [else val])))
 
 ;proccesses a given expression
@@ -230,7 +231,14 @@
 ;abstraction for if and while functions
 (define value-check-condition
   (lambda (stmt state)
-    (value-process-expression (first-operand stmt) state (lambda (v) v))))
+    (value-check-condition-errors (value-process-expression (first-operand stmt) state (lambda (v) v)))))
+
+(define value-check-condition-errors
+  (lambda (val)
+    (cond
+      [(null? val) (error 'nullcondtition "Condition can't be null value")]
+      [(number? val) (error 'numbercondition "Condition can't result in number")]
+      [else val])))
 
 ;defines the operator as the car of the expression
 (define operator
@@ -317,8 +325,9 @@
     (interpret (string-append (string-append "tests/test" num) ".txt"))))
 
 ;main interpreter call
-;(interpret testFile)
+(interpret testFile)
 
+#|
 (test "1") ;20
 (test "2") ;164
 (test "3") ;32
@@ -338,3 +347,4 @@
 (test "17") ;2000400
 (test "18") ;101
 ;(test "19") ;error
+|#

@@ -1,9 +1,9 @@
 ;;;; ***************************************************
-;;;; Group 27
+;;;; Group 15
 ;;;; Tyler Avery (tma58)
 ;;;; Thomas Bornhorst (thb34)
 ;;;; CSDS 345 Spring 2023
-;;;; Simple Language Interpreter Project, Part 1
+;;;; Simple Language Interpreter Project, Part 2
 ;;;; ***************************************************
 
 #lang racket
@@ -15,32 +15,46 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main interpreter functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;define behavior for various keywords of statements
 (define interpreter-main
   (lambda (tree state)
+    (call/cc
+     (lambda (ret)
+       (interpret-statement tree state ret (lambda(v) (error 'BreakOutsideLoop)) (lambda (v) (error 'ContinueOutsideLoop)) (lambda (v) (error 'ThrowWithoutCatch)))))))
+
+;define behavior for various keywords of statements
+(define interpret-statement
+  (lambda (tree state main-return break continue throw)
     (cond
       [(null? tree) state]
-      [(eq? (operator (first-stmt tree)) 'var) (state-declaration (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
-      [(eq? (operator (first-stmt tree)) 'if) (state-if (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
-      [(eq? (operator (first-stmt tree)) 'while) (state-while (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
-      [(eq? (operator (first-stmt tree)) 'return) (value-return (first-stmt tree) state)]
-      [(eq? (operator (first-stmt tree)) '=) (state-assignmnet (first-stmt tree) state (lambda (s) (interpreter-main (other-stmts tree) s)))]
+      [(eq? (operator (first-stmt tree)) 'var) (state-declaration (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'if) (state-if (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (call/cc (lambda (new-break)
+                                                            (state-while (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw))))) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'return) (return-exit (first-stmt tree) state main-return)]
+      [(eq? (operator (first-stmt tree)) '=) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (state-remove-new-vars (interpret-statement (other-stmts (first-stmt tree)) state main-return break continue throw) state) main-return break continue throw)] ;remove new vars (run on state, edit state) -> use on rest of stmts
+      [(eq? (operator (first-stmt tree)) 'break) (break (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'continue) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'try) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'throw) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'catch) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'finally) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [else (error 'norelop "No relevant statements found")])))
 
 ;implementation of an if statement
 (define state-if
-  (lambda (stmt state return)
+  (lambda (stmt state main-return break continue throw return)
     (if (value-process-expression (first-operand stmt) state (lambda (v) v))
-        (return (interpreter-main (list (second-operand stmt)) state))
+        (return (interpret-statement (list (second-operand stmt)) state main-return break continue throw))
         (if (not (null? (third-operand stmt)))
-            (return (interpreter-main (list (third-operand stmt)) state))
+            (return (interpret-statement (list (third-operand stmt)) state main-return break continue throw))
             (return state)))))
 
 ;implementation of a while loop
 (define state-while
-  (lambda (stmt state return)
+  (lambda (stmt state main-return break continue throw return)
     (if (value-process-expression (first-operand stmt) state (lambda (v) v))
-        (state-while stmt (interpreter-main (list (second-operand stmt)) state) return) (return state))))
+        (state-while stmt (interpret-statement (list (second-operand stmt)) state main-return break continue throw) main-return break continue throw return) (return state))))
 
 ;function that defines variables as used in the interpreter
 (define state-declaration
@@ -53,9 +67,9 @@
     (value-process-expression (right-operand expr) state (lambda (v) (return (state-update-var (left-operand expr) v state))))))
 
 ;returns the result of an expression
-(define value-return
-  (lambda (expr state)
-    (value-process-expression (first-operand expr) state (lambda (v) (value-convert-return v)))))
+(define return-exit
+  (lambda (expr state return)
+    (value-process-expression (first-operand expr) state (lambda (v) (return (value-convert-return v))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -85,7 +99,7 @@
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
       [(eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state)))]
-      [else (state-update-var-CPS var val (cdr state) (lambda (v) (cons (car state) v)))])))
+      [else (state-update-var-CPS var val (cdr state) (lambda (v) (return (cons (car state) v))))])))
 
 ;gets value of variable
 (define value-get-var
@@ -99,6 +113,15 @@
 (define state-init
   (lambda ()
     '()))
+
+;remove vars declared in local scope
+;for each var in new-state -> if var doesn't exist in old-state then remove it
+(define state-remove-new-vars
+  (lambda (new-state old-state)
+    (cond
+      [(null? new-state) '()]
+      [(var-is-declared? (car (car new-state)) old-state) (cons (car new-state) (state-remove-new-vars (cdr new-state) old-state))]
+      [else (state-remove-new-vars (cdr new-state) old-state)])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;integer and conditional operations;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -228,4 +251,32 @@
     (cons operator (cons left-operand (list right-operand)))))
 
 ;main interpreter call
-(interpreter-main (parser testFile) (state-init))
+;(interpreter-main (parser testFile) (state-init))
+
+;Testing
+
+(define test
+  (lambda (num)
+    (interpreter-main (parser (string-append (string-append "tests/test" num) ".txt")) (state-init))))
+
+#|
+(test "1")
+(test "2")
+(test "3")
+(test "4")
+(test "5")
+(test "6")
+(test "7")
+|#
+(test "8")
+(test "9")
+(test "10")
+(test "11")
+(test "12")
+(test "13")
+(test "14")
+(test "15")
+(test "16")
+(test "17")
+(test "18")
+(test "19")

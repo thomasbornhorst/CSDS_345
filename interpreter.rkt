@@ -27,19 +27,19 @@
   (lambda (tree state main-return break continue throw)
     (cond
       [(null? tree) state]
-      [(eq? (operator (first-stmt tree)) 'var) (state-declaration (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'if) (state-if (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(null? (first-stmt tree)) state]
+      [(eq? (operator (first-stmt tree)) 'var) (interpret-statement (other-stmts tree) (state-declaration (first-stmt tree) state) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'if) (interpret-statement (other-stmts tree) (state-if (first-stmt tree) state main-return break continue throw) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (call/cc (lambda (new-break)
                                                             (state-while (first-stmt tree) state main-return new-break continue throw))) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'return) (return-exit (first-stmt tree) state main-return)]
-      [(eq? (operator (first-stmt tree)) '=) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) '=) (interpret-statement (other-stmts tree) (state-assignmnet (first-stmt tree) state) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (state-pop-layer (interpret-statement (other-stmts (first-stmt tree)) (state-add-layer state) main-return break continue throw)) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'break) (break (state-pop-layer state))]
       [(eq? (operator (first-stmt tree)) 'continue) (continue state)]
-      [(eq? (operator (first-stmt tree)) 'try) (state-try (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'try) (interpret-statement (other-stmts tree) (state-try (first-stmt tree) state main-return break continue throw) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'throw) (throw (state-var-declaration 'throw (first-operand (first-stmt tree)) state))]
-      [(eq? (operator (first-stmt tree)) 'catch) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'finally) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'finally) (interpret-statement (cadr (first-stmt tree)) state main-return break continue throw)]
       [else (error 'norelop "No relevant statements found")])))
 
 (define try-stmt cadr)
@@ -49,46 +49,46 @@
   (lambda (stmt)
     (cadr (cadddr stmt))))
 
+(define value-check-condition
+  (lambda (stmt state)
+    (value-process-expression (first-operand stmt) state (lambda (v) v))))
+
 (define state-try
-  (lambda (stmt state main-return break continue throw return)
-    ((state-catch stmt (call/cc (lambda (new-throw) (interpret-statement (try-stmt stmt) (state-add-layer state) main-return break continue new-throw))) main-return break continue throw (lambda (s) (if (null? (full-finally-stmt stmt)) (return s) (return (state-pop-layer (interpret-statement (finally-stmt stmt) (state-add-layer s) main-return break continue throw)))))))))
+  (lambda (stmt state main-return break continue throw)
+    (state-pop-layer (interpret-statement (list (full-finally-stmt stmt)) (state-add-layer (state-catch stmt (call/cc (lambda (new-throw) (interpret-statement (try-stmt stmt) (state-add-layer state) main-return break continue new-throw))) main-return break continue throw)) main-return break continue throw))))
 
 (define state-catch
-  (lambda (stmt state main-return break continue throw return)
+  (lambda (stmt state main-return break continue throw)
     (cond
-      [(null? (catch-stmt stmt)) (return (state-pop-layer state))]
-      [(var-is-declared? 'throw state) (return (interpret-statement (caddr (catch-stmt stmt)) (state-add-layer (state-var-declaration (car (cadr (stmt))) (value-get-var 'throw state) (state-pop-layer state))) main-return break continue throw))]
-      [else (return (state-pop-layer state))])))
+      [(null? (catch-stmt stmt)) (state-pop-layer state)]
+      [(var-is-declared? 'throw state) (interpret-statement (caddr (catch-stmt stmt)) (state-add-layer (state-var-declaration (car (cadr (catch-stmt stmt))) (value-get-var 'throw state) (state-pop-layer state))) main-return break continue throw)]
+      [else (state-pop-layer state)])))
 
 ;implementation of an if statement
 (define state-if
-  (lambda (stmt state main-return break continue throw return)
-    (if (value-process-expression (first-operand stmt) state (lambda (v) v))
-        (return (interpret-statement (list (second-operand stmt)) state main-return break continue throw))
+  (lambda (stmt state main-return break continue throw)
+    (if (value-check-condition stmt state)
+        (interpret-statement (list (second-operand stmt)) state main-return break continue throw)
         (if (not (null? (third-operand stmt)))
-            (return (interpret-statement (list (third-operand stmt)) state main-return break continue throw))
-            (return state)))))
+            (interpret-statement (list (third-operand stmt)) state main-return break continue throw)
+            state))))
 
 ;implementation of a while loop
 (define state-while
   (lambda (stmt state main-return break continue throw)
-    (state-while stmt (call/cc (lambda (new-continue) (state-while-cps stmt state main-return break new-continue throw (lambda (s) (break s))))) main-return break continue throw)))
-
-;implementation of a while loop
-(define state-while-cps
-  (lambda (stmt state main-return break continue throw return)
-    (if (value-process-expression (first-operand stmt) state (lambda (v) v))
-        (state-while-cps stmt (interpret-statement (list (second-operand stmt)) state main-return break continue throw) main-return break continue throw return) (return state))))
+    (if (value-check-condition stmt state)
+        (state-while stmt (call/cc (lambda (new-continue) (interpret-statement (list (second-operand stmt)) state main-return break new-continue throw))) main-return break continue throw)
+        state)))
 
 ;function that defines variables as used in the interpreter
 (define state-declaration
-  (lambda (expr state return)
-    (value-process-expression (decl-right-operand expr) state (lambda (v) (return (state-var-declaration (left-operand expr) v state))))))
+  (lambda (expr state)
+    (value-process-expression (decl-right-operand expr) state (lambda (v) (state-var-declaration (left-operand expr) v state)))))
 
 ;sets the value of a variable
 (define state-assignmnet
-  (lambda (expr state return)
-    (value-process-expression (right-operand expr) state (lambda (v) (return (state-update-var (left-operand expr) v state))))))
+  (lambda (expr state)
+    (value-process-expression (right-operand expr) state (lambda (v) (state-update-var (left-operand expr) v state)))))
 
 ;returns the result of an expression
 (define return-exit

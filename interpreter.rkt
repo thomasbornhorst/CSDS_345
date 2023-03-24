@@ -28,13 +28,13 @@
       [(null? tree) state]
       [(eq? (operator (first-stmt tree)) 'var) (state-declaration (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'if) (state-if (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (call/cc (lambda (new-break)
-                                                            (state-while (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw))))) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (state-remove-new-vars (call/cc (lambda (new-break)
+                                                            (state-while (first-stmt tree) state main-return new-break continue throw))) state) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'return) (return-exit (first-stmt tree) state main-return)]
       [(eq? (operator (first-stmt tree)) '=) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (state-remove-new-vars (interpret-statement (other-stmts (first-stmt tree)) state main-return break continue throw) state) main-return break continue throw)] ;remove new vars (run on state, edit state) -> use on rest of stmts
-      [(eq? (operator (first-stmt tree)) 'break) (break (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'continue) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'break) (break state)]
+      [(eq? (operator (first-stmt tree)) 'continue) (continue state)]
       [(eq? (operator (first-stmt tree)) 'try) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'throw) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'catch) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
@@ -50,11 +50,17 @@
             (return (interpret-statement (list (third-operand stmt)) state main-return break continue throw))
             (return state)))))
 
-;implementation of a while loop
+
+
 (define state-while
+  (lambda (stmt state main-return break continue throw)
+    (state-while stmt (call/cc (lambda (new-continue) (state-while-cps stmt state main-return break new-continue throw (lambda (s) (break s))))) main-return break continue throw)))
+
+;implementation of a while loop
+(define state-while-cps
   (lambda (stmt state main-return break continue throw return)
     (if (value-process-expression (first-operand stmt) state (lambda (v) v))
-        (state-while stmt (interpret-statement (list (second-operand stmt)) state main-return break continue throw) main-return break continue throw return) (return state))))
+        (state-while-cps stmt (interpret-statement (list (second-operand stmt)) state main-return break continue throw) main-return break continue throw return) (return state))))
 
 ;function that defines variables as used in the interpreter
 (define state-declaration
@@ -122,6 +128,10 @@
       [(null? new-state) '()]
       [(var-is-declared? (car (car new-state)) old-state) (cons (car new-state) (state-remove-new-vars (cdr new-state) old-state))]
       [else (state-remove-new-vars (cdr new-state) old-state)])))
+
+(define state-new-state-layer
+  (lambda (state)
+    (cons '() state)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;integer and conditional operations;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -267,7 +277,6 @@
 (test "5")
 (test "6")
 (test "7")
-|#
 (test "8")
 (test "9")
 (test "10")
@@ -275,6 +284,7 @@
 (test "12")
 (test "13")
 (test "14")
+|#
 (test "15")
 (test "16")
 (test "17")

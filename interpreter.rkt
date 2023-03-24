@@ -12,7 +12,7 @@
 (define testFile "mainTest.txt")
 (define testFile2 "tests/test17.txt")
 
-(parser testFile2)
+(parser testFile)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main interpreter functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -61,7 +61,7 @@
   (lambda (stmt state main-return break continue throw)
     (cond
       [(null? (catch-stmt stmt)) (state-pop-layer state)]
-      [(var-is-declared? 'throw state) (interpret-statement (caddr (catch-stmt stmt)) (state-add-layer (state-var-declaration (car (cadr (catch-stmt stmt))) (value-get-var 'throw state) (state-pop-layer state))) main-return break continue throw)]
+      [(var-is-declared? 'throw state) (state-pop-layer (interpret-statement (caddr (catch-stmt stmt)) (state-add-layer (state-var-declaration (car (cadr (catch-stmt stmt))) (value-get-var 'throw state) (state-pop-layer state))) main-return break continue throw))]
       [else (state-pop-layer state)])))
 
 ;implementation of an if statement
@@ -299,7 +299,7 @@
   (lambda (num)
     (interpreter-main (parser (string-append (string-append "tests/test" num) ".txt")) (state-init))))
 
-#|
+
 (test "1") ;20
 (test "2") ;164
 (test "3") ;32
@@ -314,9 +314,8 @@
 ;(test "12") ;error
 ;(test "13") ;error
 (test "14") ;12
-|#
-;(test "15") ;125
-;(test "16") ;110
+(test "15") ;125
+(test "16") ;110
 (test "17") ;2000400
 (test "18") ;101
-(test "19") ;error
+;(test "19") ;error

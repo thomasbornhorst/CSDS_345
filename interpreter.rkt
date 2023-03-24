@@ -19,7 +19,7 @@
   (lambda (tree state)
     (call/cc
      (lambda (ret)
-       (interpret-statement tree state ret (lambda(v) (error 'BreakOutsideLoop)) (lambda (v) (error 'ContinueOutsideLoop)) (lambda (v) (error 'ThrowWithoutCatch)))))))
+       (interpret-statement tree state ret (lambda(v) (error 'breakoutsideloop "Break statement not inside while loop")) (lambda (v) (error 'continueoutsideloop  "Continue statement not inside while loop")) (lambda (v) (error 'throwwithoutcatch "Throw statement without catch")))))))
 
 ;define behavior for various keywords of statements
 (define interpret-statement
@@ -28,12 +28,12 @@
       [(null? tree) state]
       [(eq? (operator (first-stmt tree)) 'var) (state-declaration (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'if) (state-if (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (state-remove-new-vars (call/cc (lambda (new-break)
-                                                            (state-while (first-stmt tree) state main-return new-break continue throw))) state) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (call/cc (lambda (new-break)
+                                                            (state-while (first-stmt tree) state main-return new-break continue throw))) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'return) (return-exit (first-stmt tree) state main-return)]
       [(eq? (operator (first-stmt tree)) '=) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (state-remove-new-vars (interpret-statement (other-stmts (first-stmt tree)) state main-return break continue throw) state) main-return break continue throw)] ;remove new vars (run on state, edit state) -> use on rest of stmts
-      [(eq? (operator (first-stmt tree)) 'break) (break state)]
+      [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (pop-state-layer (interpret-statement (other-stmts (first-stmt tree)) (state-add-layer state) main-return break continue throw)) main-return break continue throw)] ;remove new vars (run on state, edit state) -> use on rest of stmts
+      [(eq? (operator (first-stmt tree)) 'break) (break (pop-state-layer state))]
       [(eq? (operator (first-stmt tree)) 'continue) (continue state)]
       [(eq? (operator (first-stmt tree)) 'try) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'throw) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
@@ -79,20 +79,39 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define top-layer car)
+(define first-pair car)
+(define var-name car)
+(define rest-of-state
+  (lambda (state)
+    (cons (cdr (top-layer state)) (cdr state))))
+(define new-binding-pair
+  (lambda (var val)
+    (cons var (list val))))
+(define top-first-var-name
+  (lambda (state)
+    (var-name (first-pair (top-layer state)))))
+
+(define pop-state-layer
+  (lambda (state)
+    (cdr state)))
+    
+
 ;checks whether a given variable is declared
 (define var-is-declared?
   (lambda (var state)
     (cond
-      ((null? state) #f)
-      ((eq? var (car(car state))) #t)
-      (else (var-is-declared? var (cdr state))))))
+      [(null? state) #f]
+      [(null? (top-layer state)) (var-is-declared? var (cdr state))]
+      [(eq? var (top-first-var-name state)) #t] ; car state = top-layer, car top-layer = first-binding-pair, car first-binding-pair = var name
+      [else (var-is-declared? var (rest-of-state state))])))
 
 ;declares a variable
 (define state-var-declaration
   (lambda (var val state)
     (if (var-is-declared? var state)
         (error 'vardeclaredtwice "Variable already declared")
-        (cons (cons var (list val)) state))))
+        (cons (cons (new-binding-pair var val) (top-layer state)) (cdr state)))))
 
 ;updates the value of an already defined variable
 (define state-update-var
@@ -104,32 +123,25 @@
   (lambda (var val state return)
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
-      [(eq? var (car (car state))) (return (cons (cons var (list val)) (cdr state)))]
-      [else (state-update-var-CPS var val (cdr state) (lambda (v) (return (cons (car state) v))))])))
+      [(null? (top-layer state)) (state-update-var-CPS var val (cdr state) (lambda (v) (return (cons '() v))))]
+      [(eq? var (top-first-var-name state)) (return (cons (cons (new-binding-pair var val) (cdr (top-layer state))) (cdr state)))]
+      [else (state-update-var-CPS var val (rest-of-state state) (lambda (v) (return (cons (cons (first-pair (top-layer state)) (top-layer v)) (cdr v)))))])))
 
 ;gets value of variable
 (define value-get-var
   (lambda (var state)
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
-      [(eq? var (car(car state))) (cadr (car state))]
-      [else (value-get-var var (cdr state))])))
+      [(null? (top-layer state)) (value-get-var var (cdr state))]
+      [(eq? var (top-first-var-name state)) (cadr (first-pair (top-layer state)))]
+      [else (value-get-var var (rest-of-state state))])))
 
 ;return the starting state
 (define state-init
   (lambda ()
-    '()))
+    (list '())))
 
-;remove vars declared in local scope
-;for each var in new-state -> if var doesn't exist in old-state then remove it
-(define state-remove-new-vars
-  (lambda (new-state old-state)
-    (cond
-      [(null? new-state) '()]
-      [(var-is-declared? (car (car new-state)) old-state) (cons (car new-state) (state-remove-new-vars (cdr new-state) old-state))]
-      [else (state-remove-new-vars (cdr new-state) old-state)])))
-
-(define state-new-state-layer
+(define state-add-layer
   (lambda (state)
     (cons '() state)))
 
@@ -268,25 +280,23 @@
 (define test
   (lambda (num)
     (interpreter-main (parser (string-append (string-append "tests/test" num) ".txt")) (state-init))))
-
-#|
-(test "1")
-(test "2")
-(test "3")
-(test "4")
-(test "5")
-(test "6")
-(test "7")
-(test "8")
-(test "9")
-(test "10")
-(test "11")
-(test "12")
-(test "13")
-(test "14")
-|#
-(test "15")
-(test "16")
-(test "17")
-(test "18")
-(test "19")
+ 
+(test "1") ;20
+(test "2") ;164
+(test "3") ;32
+(test "4") ;2
+;(test "5") ;error
+(test "6") ;25
+(test "7") ;21
+(test "8") ;6
+(test "9") ;-1
+(test "10") ;789
+;(test "11") ;error
+;(test "12") ;error
+;(test "13") ;error
+(test "14") ;12
+(test "15") ;125
+(test "16") ;110
+(test "17") ;2000400
+(test "18") ;101
+(test "19") ;error

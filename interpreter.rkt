@@ -16,6 +16,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main interpreter functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;main interpret call that parses file and calls the main interpreter functionality
+(define interpret
+  (lambda (filename)
+    (interpreter-main (parser filename) (state-init))))
+
+;starts interpreter
 (define interpreter-main
   (lambda (tree state)
     (call/cc
@@ -42,21 +48,12 @@
       [(eq? (operator (first-stmt tree)) 'finally) (interpret-statement (cadr (first-stmt tree)) state main-return break continue throw)]
       [else (error 'norelop "No relevant statements found")])))
 
-(define try-stmt cadr)
-(define catch-stmt caddr)
-(define full-finally-stmt cadddr)
-(define finally-stmt
-  (lambda (stmt)
-    (cadr (cadddr stmt))))
-
-(define value-check-condition
-  (lambda (stmt state)
-    (value-process-expression (first-operand stmt) state (lambda (v) v))))
-
+;implementation of a try statement
 (define state-try
   (lambda (stmt state main-return break continue throw)
     (state-pop-layer (interpret-statement (list (full-finally-stmt stmt)) (state-add-layer (state-catch stmt (call/cc (lambda (new-throw) (interpret-statement (try-stmt stmt) (state-add-layer state) main-return break continue new-throw))) main-return break continue throw)) main-return break continue throw))))
 
+;implementation of a catch statement
 (define state-catch
   (lambda (stmt state main-return break continue throw)
     (cond
@@ -96,24 +93,6 @@
     (value-process-expression (first-operand expr) state (lambda (v) (return (value-convert-return v))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define top-layer car)
-(define first-pair car)
-(define var-name car)
-(define rest-of-state
-  (lambda (state)
-    (cons (cdr (top-layer state)) (cdr state))))
-(define new-binding-pair
-  (lambda (var val)
-    (cons var (list val))))
-(define top-first-var-name
-  (lambda (state)
-    (var-name (first-pair (top-layer state)))))
-
-(define state-pop-layer
-  (lambda (state)
-    (cdr state)))
-    
 
 ;checks whether a given variable is declared
 (define var-is-declared?
@@ -159,9 +138,15 @@
   (lambda ()
     (list '())))
 
+;add a new empty layer to the top of the state
 (define state-add-layer
   (lambda (state)
     (cons '() state)))
+
+;pop off the top layer of the state
+(define state-pop-layer
+  (lambda (state)
+    (cdr state)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;integer and conditional operations;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -240,7 +225,14 @@
       [(number? expr) expr]
       [else (value-get-var expr state)])))
 
-;helper functions to abstract the details and get the denotational code above to read better
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; helper functions to abstract the details and get the denotational code above to read better ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;abstraction for if and while functions
+(define value-check-condition
+  (lambda (stmt state)
+    (value-process-expression (first-operand stmt) state (lambda (v) v))))
+
+;defines the operator as the car of the expression
 (define operator
   (lambda (expression)
     (car expression)))
@@ -270,6 +262,10 @@
         '()
         (right-operand expression))))
 
+(define try-stmt cadr)
+(define catch-stmt caddr)
+(define full-finally-stmt cadddr)
+
 ;first statement of syntax tree
 (define first-stmt
   (lambda (tree)
@@ -290,15 +286,38 @@
   (lambda (operator left-operand right-operand)
     (cons operator (cons left-operand (list right-operand)))))
 
-;main interpreter call
-;(interpreter-main (parser testFile) (state-init))
+;defines the top layer as car
+(define top-layer car)
 
-;Testing
+;defines the first binding pair as car
+(define first-pair car)
+
+;defines the var name as car
+(define var-name car)
+
+;returns the state excluding the first binding pair in the top layer of the state
+(define rest-of-state
+  (lambda (state)
+    (cons (cdr (top-layer state)) (cdr state))))
+
+;returns a new binding pair with a var and val
+(define new-binding-pair
+  (lambda (var val)
+    (cons var (list val))))
+
+;returns the var name of the first binding pair in the top layer of the state
+(define top-first-var-name
+  (lambda (state)
+    (var-name (first-pair (top-layer state)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Testing ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define test
   (lambda (num)
-    (interpreter-main (parser (string-append (string-append "tests/test" num) ".txt")) (state-init))))
+    (interpret (string-append (string-append "tests/test" num) ".txt"))))
 
+;main interpreter call
+;(interpret testFile)
 
 (test "1") ;20
 (test "2") ;164

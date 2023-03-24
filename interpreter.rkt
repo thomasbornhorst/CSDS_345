@@ -37,7 +37,7 @@
       [(eq? (operator (first-stmt tree)) 'break) (break (state-pop-layer state))]
       [(eq? (operator (first-stmt tree)) 'continue) (continue state)]
       [(eq? (operator (first-stmt tree)) 'try) (state-try (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'throw) (throw (first-operand (first-stmt tree)))]
+      [(eq? (operator (first-stmt tree)) 'throw) (throw (state-var-declaration 'throw (first-operand (first-stmt tree)) state))]
       [(eq? (operator (first-stmt tree)) 'catch) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'finally) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [else (error 'norelop "No relevant statements found")])))
@@ -51,15 +51,14 @@
 
 (define state-try
   (lambda (stmt state main-return break continue throw return)
-    ((state-try-helper stmt state main-return break continue throw (lambda (s) (if (null? (full-finally-stmt stmt)) (return s) (return (interpret-statement (finally-stmt stmt) s main-return break continue throw))))))))
-
-(define state-try-helper
-  (lambda (stmt state main-return break continue throw return)
-    (return (state-catch (catch-stmt stmt) (call/cc (lambda (new-throw) (return (interpret-statement (try-stmt stmt) (state-add-layer state) main-return break continue new-throw)))) state main-return break continue throw))))
+    ((state-catch stmt (call/cc (lambda (new-throw) (interpret-statement (try-stmt stmt) (state-add-layer state) main-return break continue new-throw))) main-return break continue throw (lambda (s) (if (null? (full-finally-stmt stmt)) (return s) (return (state-pop-layer (interpret-statement (finally-stmt stmt) (state-add-layer s) main-return break continue throw)))))))))
 
 (define state-catch
-  (lambda (stmt e state main-return break continue throw)
-    (interpret-statement (caddr stmt) (state-var-declaration (car (cadr stmt)) e state) main-return break continue throw)))
+  (lambda (stmt state main-return break continue throw return)
+    (cond
+      [(null? (catch-stmt stmt)) (return (state-pop-layer state))]
+      [(var-is-declared? 'throw state) (return (interpret-statement (caddr (catch-stmt stmt)) (state-add-layer (state-var-declaration (car (cadr (stmt))) (value-get-var 'throw state) (state-pop-layer state))) main-return break continue throw))]
+      [else (return (state-pop-layer state))])))
 
 ;implementation of an if statement
 (define state-if

@@ -10,8 +10,9 @@
 (require "simpleParser.rkt")
 
 (define testFile "mainTest.txt")
+(define testFile2 "tests/test17.txt")
 
-(parser testFile)
+(parser testFile2)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main interpreter functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -32,14 +33,33 @@
                                                             (state-while (first-stmt tree) state main-return new-break continue throw))) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'return) (return-exit (first-stmt tree) state main-return)]
       [(eq? (operator (first-stmt tree)) '=) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (pop-state-layer (interpret-statement (other-stmts (first-stmt tree)) (state-add-layer state) main-return break continue throw)) main-return break continue throw)] ;remove new vars (run on state, edit state) -> use on rest of stmts
-      [(eq? (operator (first-stmt tree)) 'break) (break (pop-state-layer state))]
+      [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (state-pop-layer (interpret-statement (other-stmts (first-stmt tree)) (state-add-layer state) main-return break continue throw)) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'break) (break (state-pop-layer state))]
       [(eq? (operator (first-stmt tree)) 'continue) (continue state)]
-      [(eq? (operator (first-stmt tree)) 'try) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
-      [(eq? (operator (first-stmt tree)) 'throw) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'try) (state-try (first-stmt tree) state main-return break continue throw (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'throw) (throw (first-operand (first-stmt tree)))]
       [(eq? (operator (first-stmt tree)) 'catch) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'finally) (state-assignmnet (first-stmt tree) state (lambda (s) (interpret-statement (other-stmts tree) s main-return break continue throw)))]
       [else (error 'norelop "No relevant statements found")])))
+
+(define try-stmt cadr)
+(define catch-stmt caddr)
+(define full-finally-stmt cadddr)
+(define finally-stmt
+  (lambda (stmt)
+    (cadr (cadddr stmt))))
+
+(define state-try
+  (lambda (stmt state main-return break continue throw return)
+    ((state-try-helper stmt state main-return break continue throw (lambda (s) (if (null? (full-finally-stmt stmt)) (return s) (return (interpret-statement (finally-stmt stmt) s main-return break continue throw))))))))
+
+(define state-try-helper
+  (lambda (stmt state main-return break continue throw return)
+    (return (state-catch (catch-stmt stmt) (call/cc (lambda (new-throw) (return (interpret-statement (try-stmt stmt) (state-add-layer state) main-return break continue new-throw)))) state main-return break continue throw))))
+
+(define state-catch
+  (lambda (stmt e state main-return break continue throw)
+    (interpret-statement (caddr stmt) (state-var-declaration (car (cadr stmt)) e state) main-return break continue throw)))
 
 ;implementation of an if statement
 (define state-if
@@ -50,8 +70,7 @@
             (return (interpret-statement (list (third-operand stmt)) state main-return break continue throw))
             (return state)))))
 
-
-
+;implementation of a while loop
 (define state-while
   (lambda (stmt state main-return break continue throw)
     (state-while stmt (call/cc (lambda (new-continue) (state-while-cps stmt state main-return break new-continue throw (lambda (s) (break s))))) main-return break continue throw)))
@@ -92,7 +111,7 @@
   (lambda (state)
     (var-name (first-pair (top-layer state)))))
 
-(define pop-state-layer
+(define state-pop-layer
   (lambda (state)
     (cdr state)))
     
@@ -280,7 +299,8 @@
 (define test
   (lambda (num)
     (interpreter-main (parser (string-append (string-append "tests/test" num) ".txt")) (state-init))))
- 
+
+#|
 (test "1") ;20
 (test "2") ;164
 (test "3") ;32
@@ -295,8 +315,9 @@
 ;(test "12") ;error
 ;(test "13") ;error
 (test "14") ;12
-(test "15") ;125
-(test "16") ;110
+|#
+;(test "15") ;125
+;(test "16") ;110
 (test "17") ;2000400
 (test "18") ;101
 (test "19") ;error

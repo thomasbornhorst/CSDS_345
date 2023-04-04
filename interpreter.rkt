@@ -7,7 +7,7 @@
 ;;;; ***************************************************
 
 #lang racket
-(require "simpleParser.rkt")
+(require "functionParser.rkt")
 
 (define testFile "mainTest.txt")
 (define testFile2 "tests/test17.txt")
@@ -325,26 +325,26 @@
     (interpret (string-append (string-append "tests/test" num) ".txt"))))
 
 ;main interpreter call
-(interpret testFile)
+;(interpret testFile)
 
-#|
-(test "1") ;20
-(test "2") ;164
-(test "3") ;32
-(test "4") ;2
-;(test "5") ;error
-(test "6") ;25
-(test "7") ;21
-(test "8") ;6
-(test "9") ;-1
-(test "10") ;789
-;(test "11") ;error
-;(test "12") ;error
-;(test "13") ;error
-(test "14") ;12
-(test "15") ;125
-(test "16") ;110
-(test "17") ;2000400
-(test "18") ;101
-;(test "19") ;error
-|#
+
+(test "1") ;10
+(test "2") ;14
+(test "3") ;45
+(test "4") ;55
+(test "5") ;1
+(test "6") ;115
+(test "7") ;true
+(test "8") ;20
+(test "9") ;24
+(test "10") ;2
+(test "11") ;35
+(test "12") ;error
+(test "13") ;90
+(test "14") ;69
+(test "15") ;87
+(test "16") ;64
+(test "17") ;error
+(test "18") ;125
+(test "19") ;100
+(test "19") ;2000400

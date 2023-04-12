@@ -21,12 +21,19 @@
   (lambda (filename)
     (interpreter-main (parser filename) (state-init))))
 
+(define error-break (lambda(v) (error 'breakoutsideloop "Break statement not inside while loop")))
+(define error-continue (lambda (v) (error 'continueoutsideloop  "Continue statement not inside while loop")))
+(define error-throw (lambda (v) (error 'throwwithoutcatch "Throw statement without catch")))
+
 ;starts interpreter
 (define interpreter-main
   (lambda (tree state)
     (call/cc
      (lambda (ret)
-       (interpret-statement tree state ret (lambda(v) (error 'breakoutsideloop "Break statement not inside while loop")) (lambda (v) (error 'continueoutsideloop  "Continue statement not inside while loop")) (lambda (v) (error 'throwwithoutcatch "Throw statement without catch")))))))
+       (interpret-statement tree state ret error-break error-continue error-throw)))))
+
+;outer layer - global variable declarations & function definitions
+;call main
 
 ;define behavior for various keywords of statements
 (define interpret-statement
@@ -34,7 +41,9 @@
     (cond
       [(null? tree) state]
       [(null? (first-stmt tree)) state]
+      [(eq? (operator (first-stmt tree)) 'function) (interpret-statement (other-stmts tree) (state-define-function (first-stmt tree) state) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'var) (interpret-statement (other-stmts tree) (state-declaration (first-stmt tree) state) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'funcall) (state-function-call (first-stmt tree) state main-return break continue throw (lambda (v) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'if) (interpret-statement (other-stmts tree) (state-if (first-stmt tree) state main-return break continue throw) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (call/cc (lambda (new-break)
                                                             (state-while (first-stmt tree) state main-return new-break continue throw))) main-return break continue throw)]
@@ -47,6 +56,53 @@
       [(eq? (operator (first-stmt tree)) 'throw) (throw (state-var-declaration 'throw (first-operand (first-stmt tree)) state))]
       [(eq? (operator (first-stmt tree)) 'finally) (interpret-statement (cadr (first-stmt tree)) state main-return break continue throw)]
       [else (error 'norelop "No relevant statements found")])))
+
+(define function-name cadr)
+(define formal-parameters caddr)
+(define function-body cadddr)
+
+(define state-define-function
+  (lambda (stmt state)
+    (state-var-declaration (function-name stmt) (value-make-closure stmt state) state)))
+
+(define value-make-closure
+  (lambda (stmt state)
+    (cons (formal-parameters stmt) (cons (function-body stmt) (list (function-environment stmt state))))))
+
+(define function-environment
+  (lambda (stmt state)
+    (lambda (current-state) (current-state)))) ;TODO: Implement function-environment (could also implement as just returning values neccessary to create state in later part)
+
+(define function-call-name cadr)
+
+;only modifications to the state will be through global variables so don't need to actually return the state
+(define state-function-call
+  (lambda (stmt state return)
+    (return (value-function-call stmt state))))
+
+;get closure then call function to deal with processing the rest of the function
+(define value-function-call
+  (lambda (stmt state)
+    (value-function-call-with-closure stmt (value-get-var (function-call-name stmt) state) state)))
+
+(define actual-parameters cddr)
+(define closure-formal-parameters car)
+(define closure-function-body cadr)
+(define get-function-environment caddr)
+
+;Get fstate -> bind parameters -> run function body
+;TODO: Fix that #t will become 'true here on return?
+(define value-function-call-with-closure
+  (lambda (stmt closure state)
+    (call/cc
+     (lambda (ret)
+    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer ((get-function-environment closure) state)) state) ret error-break error-continue error-throw)))))
+
+;bind actual parameters to formal parameters
+(define state-bind-parameters
+  (lambda (formal-parameters actual-parameters fstate state)
+    (if (null? actual-parameters) fstate
+        (value-process-expression (car actual-parameters) state (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v) state))))))
 
 ;implementation of a try statement
 (define state-try
@@ -195,6 +251,7 @@
       [(null? expr) (return '())]
       [(not (list? expr)) (return (value-single-expr expr state))] ; if just a value
       [(is-one-operand? expr) (value-single-operand-expr expr state return)] ; if only one operand
+      [(eq? (operator expr) 'funcall) (value-function-call expr state)]
       [(list? (left-operand expr)) (if (list? (right-operand expr)) ; if left-operand is a list (nested expression), recurse through it - if right-operand is a list, recurse through it
                                        (value-process-expression (left-operand expr) state
                                                                  (lambda (v1) (value-process-expression (right-operand expr) state
@@ -325,9 +382,9 @@
     (interpret (string-append (string-append "tests/test" num) ".txt"))))
 
 ;main interpreter call
-;(interpret testFile)
+(interpret testFile)
 
-
+#|
 (test "1") ;10
 (test "2") ;14
 (test "3") ;45
@@ -348,3 +405,4 @@
 (test "18") ;125
 (test "19") ;100
 (test "20") ;2000400
+|#

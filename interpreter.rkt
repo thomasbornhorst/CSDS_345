@@ -57,7 +57,7 @@
       [(null? (first-stmt tree)) state]
       [(eq? (operator (first-stmt tree)) 'function) (interpret-statement (other-stmts tree) (state-define-function (first-stmt tree) state) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'var) (interpret-statement (other-stmts tree) (state-declaration (first-stmt tree) state) main-return break continue throw)]
-      [(eq? (operator (first-stmt tree)) 'funcall) (state-function-call (first-stmt tree) state main-return break continue throw (lambda (v) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'funcall) (state-function-call (first-stmt tree) state (lambda (v) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'if) (interpret-statement (other-stmts tree) (state-if (first-stmt tree) state main-return break continue throw) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (call/cc (lambda (new-break)
                                                             (state-while (first-stmt tree) state main-return new-break continue throw))) main-return break continue throw)]

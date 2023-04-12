@@ -1,11 +1,14 @@
 function min(a, b) {
   if (a < b) {
-    return a;
+    x = a;
   }
   else
-    return b;
+    x = b;
 }
 
+var x = 5;
+
 function main() {
-  return min(10, 20);
+  min(10, 20);
+  return x;
 }

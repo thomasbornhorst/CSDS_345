@@ -28,12 +28,26 @@
 ;starts interpreter
 (define interpreter-main
   (lambda (tree state)
+    (state-get-definitions tree state (lambda (s) (interpreter-start (closure-function-body (value-get-var 'main s)) (state-add-layer s))))))
+
+;outer layer - global variable declarations & function definitions
+(define state-get-definitions
+  (lambda (tree state return)
+    (cond
+      [(null? tree) (return state)]
+      [(null? (first-stmt tree)) (return state)]
+      [(eq? (operator (first-stmt tree)) 'function) (state-get-definitions (other-stmts tree) (state-define-function (first-stmt tree) state) return)]
+      [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration (first-stmt tree) state) return)]
+      [else (state-get-definitions (other-stmts tree) state return)])))
+
+(define interpreter-start
+  (lambda (tree state)
     (call/cc
      (lambda (ret)
        (interpret-statement tree state ret error-break error-continue error-throw)))))
 
-;outer layer - global variable declarations & function definitions
-;call main
+;NEXT STEPS
+;implement global variables w/ box
 
 ;define behavior for various keywords of statements
 (define interpret-statement
@@ -67,11 +81,11 @@
 
 (define value-make-closure
   (lambda (stmt state)
-    (cons (formal-parameters stmt) (cons (function-body stmt) (list (function-environment stmt state))))))
+    (cons (formal-parameters stmt) (cons (function-body stmt) (list (lambda (current-state) current-state))))))
 
-(define function-environment
-  (lambda (stmt state)
-    (lambda (current-state) (current-state)))) ;TODO: Implement function-environment (could also implement as just returning values neccessary to create state in later part)
+;(define function-environment
+ ; (lambda (stmt state)
+  ;  (lambda (current-state) (current-state)))) ;TODO: Implement function-environment (could also implement as just returning values neccessary to create state in later part)
 
 (define function-call-name cadr)
 
@@ -102,7 +116,7 @@
 (define state-bind-parameters
   (lambda (formal-parameters actual-parameters fstate state)
     (if (null? actual-parameters) fstate
-        (value-process-expression (car actual-parameters) state (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v) state))))))
+        (value-process-expression (car actual-parameters) state (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v fstate) state))))))
 
 ;implementation of a try statement
 (define state-try

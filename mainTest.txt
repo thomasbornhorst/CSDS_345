@@ -10,5 +10,9 @@ var x = 5;
 
 function main() {
   min(10, 20);
+  x = 5 + 12;
+  var a = x;
+  a = a + 2;
+  x = a;
   return x;
 }

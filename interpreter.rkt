@@ -191,7 +191,7 @@
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
       [(null? (top-layer state)) (state-update-var-CPS var val (cdr state) (lambda (v) (return (cons '() v))))]
-      [(eq? var (top-first-var-name state)) (return (cons (cons (new-binding-pair var val) (cdr (top-layer state))) (cdr state)))]
+      [(eq? var (top-first-var-name state)) (begin (set-box! (cadr (first-pair (top-layer state))) val) (return state))]
       [else (state-update-var-CPS var val (rest-of-state state) (lambda (v) (return (cons (cons (first-pair (top-layer state)) (top-layer v)) (cdr v)))))])))
 
 ;gets value of variable
@@ -200,7 +200,7 @@
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
       [(null? (top-layer state)) (value-get-var var (cdr state))]
-      [(eq? var (top-first-var-name state)) (cadr (first-pair (top-layer state)))]
+      [(eq? var (top-first-var-name state)) (unbox (cadr (first-pair (top-layer state))))]
       [else (value-get-var var (rest-of-state state))])))
 
 ;return the starting state
@@ -382,7 +382,7 @@
 ;returns a new binding pair with a var and val
 (define new-binding-pair
   (lambda (var val)
-    (cons var (list val))))
+    (cons var (list (box val)))))
 
 ;returns the var name of the first binding pair in the top layer of the state
 (define top-first-var-name

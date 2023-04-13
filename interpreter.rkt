@@ -120,8 +120,10 @@
 ;bind actual parameters to formal parameters
 (define state-bind-parameters
   (lambda (formal-parameters actual-parameters fstate state)
-    (if (null? actual-parameters) fstate
-        (value-process-expression (car actual-parameters) state (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v fstate) state))))))
+    (cond
+      [(and (null? formal-parameters) (null? actual-parameters)) fstate]
+      [(or (null? formal-parameters) (null? actual-parameters)) (error 'mismatchedparams "Mismatched parameters and arguments")]
+      [else (value-process-expression (car actual-parameters) state (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v fstate) state)))])))
 
 ;implementation of a try statement
 (define state-try
@@ -433,7 +435,7 @@
 (test "9") ;24
 (test "10") ;2
 (test "11") ;35
-(test "12") ;error - custom error message?
+;(test "12") ;error - mismatchedparams
 (test "13") ;90
 (test "14") ;69
 (test "15") ;87

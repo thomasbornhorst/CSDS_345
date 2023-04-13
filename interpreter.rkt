@@ -193,7 +193,7 @@
 
 (define state-var-declaration
   (lambda (var val state)
-    (if (var-is-declared-not-global? var state)
+    (if (var-in-layer? var (top-layer state))
         (error 'vardeclaredtwice "Variable already declared")
         (cons (cons (new-binding-pair var val) (top-layer state)) (cdr state)))))
 
@@ -423,7 +423,7 @@
 
 ;main interpreter call
 ;(interpret testFile)
-#||#
+#|
 (test "1") ;10
 (test "2") ;14
 (test "3") ;45
@@ -437,10 +437,12 @@
 (test "11") ;35
 ;(test "12") ;error - mismatchedparams
 (test "13") ;90
+
 (test "14") ;69
 (test "15") ;87
 (test "16") ;64
 (test "17") ;error
 (test "18") ;125
+|#
 (test "19") ;100
 (test "20") ;2000400

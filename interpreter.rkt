@@ -10,7 +10,7 @@
 (require "functionParser.rkt")
 
 (define testFile "mainTest.txt")
-(define testFile2 "tests/test6.txt")
+(define testFile2 "tests/test19.txt")
 
 (parser testFile2)
 
@@ -28,16 +28,16 @@
 ;starts interpreter
 (define interpreter-main
   (lambda (tree state)
-    (state-get-definitions tree state (lambda (s) (interpreter-start (closure-function-body (value-get-var 'main s)) (state-add-layer s))))))
+    (state-get-definitions tree state error-throw (lambda (s) (interpreter-start (closure-function-body (value-get-var 'main s)) (state-add-layer s))))))
 
 ;outer layer - global variable declarations & function definitions
 (define state-get-definitions
-  (lambda (tree state return)
+  (lambda (tree state throw return)
     (cond
       [(null? tree) (return state)]
       [(null? (first-stmt tree)) (return state)]
-      [(eq? (operator (first-stmt tree)) 'function) (state-get-definitions (other-stmts tree) (state-define-function (first-stmt tree) state) return)]
-      [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration-global (first-stmt tree) state) return)]
+      [(eq? (operator (first-stmt tree)) 'function) (state-get-definitions (other-stmts tree) (state-define-function (first-stmt tree) state) throw return)]
+      [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration-global (first-stmt tree) state throw) throw return)]
       [else (state-get-definitions (other-stmts tree) state return)])))
 
 (define interpreter-start
@@ -53,18 +53,18 @@
       [(null? tree) state]
       [(null? (first-stmt tree)) state]
       [(eq? (operator (first-stmt tree)) 'function) (interpret-statement (other-stmts tree) (state-define-function (first-stmt tree) state) main-return break continue throw)]
-      [(eq? (operator (first-stmt tree)) 'var) (interpret-statement (other-stmts tree) (state-declaration (first-stmt tree) state) main-return break continue throw)]
-      [(eq? (operator (first-stmt tree)) 'funcall) (state-function-call (first-stmt tree) state (lambda (v) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
+      [(eq? (operator (first-stmt tree)) 'var) (interpret-statement (other-stmts tree) (state-declaration (first-stmt tree) state throw) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'funcall) (state-function-call (first-stmt tree) state throw (lambda (v) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'if) (interpret-statement (other-stmts tree) (state-if (first-stmt tree) state main-return break continue throw) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'while) (interpret-statement (other-stmts tree) (call/cc (lambda (new-break)
                                                             (state-while (first-stmt tree) state main-return new-break continue throw))) main-return break continue throw)]
-      [(eq? (operator (first-stmt tree)) 'return) (return-exit (first-stmt tree) state main-return)]
-      [(eq? (operator (first-stmt tree)) '=) (interpret-statement (other-stmts tree) (state-assignmnet (first-stmt tree) state) main-return break continue throw)]
+      [(eq? (operator (first-stmt tree)) 'return) (return-exit (first-stmt tree) state throw main-return)]
+      [(eq? (operator (first-stmt tree)) '=) (interpret-statement (other-stmts tree) (state-assignment (first-stmt tree) state throw) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'begin) (interpret-statement (other-stmts tree) (state-pop-layer (interpret-statement (other-stmts (first-stmt tree)) (state-add-layer state) main-return break continue throw)) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'break) (break (state-pop-layer state))]
       [(eq? (operator (first-stmt tree)) 'continue) (continue state)]
       [(eq? (operator (first-stmt tree)) 'try) (interpret-statement (other-stmts tree) (state-try (first-stmt tree) state main-return break continue throw) main-return break continue throw)]
-      [(eq? (operator (first-stmt tree)) 'throw) (throw (state-var-declaration 'throw (first-operand (first-stmt tree)) state))]
+      [(eq? (operator (first-stmt tree)) 'throw) (value-process-expression (first-operand (first-stmt tree)) state error-throw (lambda (v) (throw (state-var-declaration 'throw v state))))]
       [(eq? (operator (first-stmt tree)) 'finally) (interpret-statement (cadr (first-stmt tree)) state main-return break continue throw)]
       [else (error 'norelop "No relevant statements found")])))
 
@@ -96,13 +96,13 @@
 
 ;only modifications to the state will be through global variables so don't need to actually return the state
 (define state-function-call
-  (lambda (stmt state return)
-    (return (value-function-call stmt state))))
+  (lambda (stmt state throw return)
+    (return (value-function-call stmt state throw))))
 
 ;get closure then call function to deal with processing the rest of the function
 (define value-function-call
-  (lambda (stmt state)
-    (value-function-call-with-closure stmt (value-get-var (function-call-name stmt) state) state)))
+  (lambda (stmt state throw)
+    (value-function-call-with-closure stmt (value-get-var (function-call-name stmt) state) state throw)))
 
 (define actual-parameters cddr)
 (define closure-formal-parameters car)
@@ -112,18 +112,24 @@
 ;Get fstate -> bind parameters -> run function body
 ;TODO: Fix that #t will become 'true here on return?
 (define value-function-call-with-closure
-  (lambda (stmt closure state)
+  (lambda (stmt closure state throw)
     (call/cc
      (lambda (ret)
-    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer ((get-function-environment closure) state)) state) ret error-break error-continue error-throw)))))
+       (state-function-throw (call/cc (lambda (new-throw) 
+    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer ((get-function-environment closure) state)) state throw) ret error-break error-continue new-throw))) state throw)))))
 
+;if throw in fstate -> add top layer of fstate to state -> throw with state
+(define state-function-throw
+  (lambda (fstate state throw)
+    (if (var-is-declared? 'throw fstate) (throw (cons (top-layer fstate) state)) state)))
+     
 ;bind actual parameters to formal parameters
 (define state-bind-parameters
-  (lambda (formal-parameters actual-parameters fstate state)
+  (lambda (formal-parameters actual-parameters fstate state throw)
     (cond
       [(and (null? formal-parameters) (null? actual-parameters)) fstate]
       [(or (null? formal-parameters) (null? actual-parameters)) (error 'mismatchedparams "Mismatched parameters and arguments")]
-      [else (value-process-expression (car actual-parameters) state (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v fstate) state)))])))
+      [else (value-process-expression (car actual-parameters) state throw (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v fstate) state throw)))])))
 
 ;implementation of a try statement
 (define state-try
@@ -141,7 +147,7 @@
 ;implementation of an if statement
 (define state-if
   (lambda (stmt state main-return break continue throw)
-    (if (value-check-condition stmt state)
+    (if (value-check-condition stmt state throw)
         (interpret-statement (list (second-operand stmt)) state main-return break continue throw)
         (if (not (null? (third-operand stmt)))
             (interpret-statement (list (third-operand stmt)) state main-return break continue throw)
@@ -150,28 +156,28 @@
 ;implementation of a while loop
 (define state-while
   (lambda (stmt state main-return break continue throw)
-    (if (value-check-condition stmt state)
+    (if (value-check-condition stmt state throw)
         (state-while stmt (call/cc (lambda (new-continue) (interpret-statement (list (second-operand stmt)) state main-return break new-continue throw))) main-return break continue throw)
         state)))
 
 ;function that defines variables as used in the interpreter
 (define state-declaration
-  (lambda (expr state)
-    (value-process-expression (decl-right-operand expr) state (lambda (v) (state-var-declaration (left-operand expr) v state)))))
+  (lambda (expr state throw)
+    (value-process-expression (decl-right-operand expr) state throw (lambda (v) (state-var-declaration (left-operand expr) v state)))))
 
 (define state-declaration-global
-  (lambda (expr state)
-    (value-process-expression (decl-right-operand expr) state (lambda (v) (state-var-declaration-global (left-operand expr) v state)))))
+  (lambda (expr state throw)
+    (value-process-expression (decl-right-operand expr) state throw (lambda (v) (state-var-declaration-global (left-operand expr) v state)))))
 
 ;sets the value of a variable
-(define state-assignmnet
-  (lambda (expr state)
-    (value-process-expression (right-operand expr) state (lambda (v) (state-update-var (left-operand expr) v state)))))
+(define state-assignment
+  (lambda (expr state throw)
+    (value-process-expression (right-operand expr) state throw (lambda (v) (state-update-var (left-operand expr) v state)))))
 
 ;returns the result of an expression
 (define return-exit
-  (lambda (expr state return)
-    (value-process-expression (first-operand expr) state (lambda (v) (return (value-convert-return v))))))
+  (lambda (expr state throw return)
+    (value-process-expression (first-operand expr) state throw (lambda (v) (return (value-convert-return v))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -286,31 +292,31 @@
 
 ;proccesses a given expression
 (define value-process-expression
-  (lambda (expr state return)
+  (lambda (expr state throw return)
     (cond
       [(null? expr) (return '())]
       [(not (list? expr)) (return (value-single-expr expr state))] ; if just a value
-      [(eq? (operator expr) 'funcall) (return (value-function-call expr state))]
-      [(is-one-operand? expr) (value-single-operand-expr expr state return)] ; if only one operand
+      [(eq? (operator expr) 'funcall) (return (value-function-call expr state throw))]
+      [(is-one-operand? expr) (value-single-operand-expr expr state throw return)] ; if only one operand
       [(list? (left-operand expr)) (if (list? (right-operand expr)) ; if left-operand is a list (nested expression), recurse through it - if right-operand is a list, recurse through it
-                                       (value-process-expression (left-operand expr) state
-                                                                 (lambda (v1) (value-process-expression (right-operand expr) state
+                                       (value-process-expression (left-operand expr) state throw
+                                                                 (lambda (v1) (value-process-expression (right-operand expr) state throw
                                                                                                         (lambda (v2) (value-process-expression
-                                                                                                                      (value-assemble-expression (operator expr) v1 v2) state return))))) ; both operands are lists
-                                      (value-process-expression (left-operand expr) state
-                                                                (lambda (v1) (value-process-expression (value-assemble-expression (operator expr) v1 (right-operand expr)) state return))))] ; only left-operand is a list
-      [(list? (right-operand expr)) (value-process-expression (right-operand expr) state
-                                                              (lambda (v2) (value-process-expression (value-assemble-expression (operator expr) (left-operand expr) v2) state return)))] ; only right-operand is a list
+                                                                                                                      (value-assemble-expression (operator expr) v1 v2) state throw return))))) ; both operands are lists
+                                      (value-process-expression (left-operand expr) state throw
+                                                                (lambda (v1) (value-process-expression (value-assemble-expression (operator expr) v1 (right-operand expr)) state throw return))))] ; only left-operand is a list
+      [(list? (right-operand expr)) (value-process-expression (right-operand expr) state throw
+                                                              (lambda (v2) (value-process-expression (value-assemble-expression (operator expr) (left-operand expr) v2) state throw return)))] ; only right-operand is a list
       [else (return (value-integer-operations (value-assemble-expression (operator expr) ; (essentially the base case) if neither are lists, make sure each operand is a value and pass to integer/conditional operations functions
                                                                          (value-single-expr (left-operand expr) state)
                                                                          (value-single-expr (right-operand expr) state)) state))])))
 
 ;processes the result of an expression with one operand
 (define value-single-operand-expr
-  (lambda (expr state return)
+  (lambda (expr state throw return)
     (cond
-      [(eq? (operator expr) '!) (value-process-expression (first-operand expr) state (lambda (v) (return (not v))))]
-      [(eq? (operator expr) '-) (value-process-expression (first-operand expr) state (lambda (v) (return (* v -1))))])))
+      [(eq? (operator expr) '!) (value-process-expression (first-operand expr) state throw (lambda (v) (return (not v))))]
+      [(eq? (operator expr) '-) (value-process-expression (first-operand expr) state throw (lambda (v) (return (* v -1))))])))
 
 ;returns the value of an expression with one element
 (define value-single-expr
@@ -327,8 +333,8 @@
 
 ;abstraction for if and while functions
 (define value-check-condition
-  (lambda (stmt state)
-    (value-check-condition-errors (value-process-expression (first-operand stmt) state (lambda (v) v)))))
+  (lambda (stmt state throw)
+    (value-check-condition-errors (value-process-expression (first-operand stmt) state throw (lambda (v) v)))))
 
 (define value-check-condition-errors
   (lambda (val)
@@ -423,7 +429,7 @@
 
 ;main interpreter call
 ;(interpret testFile)
-#|
+
 (test "1") ;10
 (test "2") ;14
 (test "3") ;45
@@ -437,12 +443,10 @@
 (test "11") ;35
 ;(test "12") ;error - mismatchedparams
 (test "13") ;90
-
 (test "14") ;69
 (test "15") ;87
 (test "16") ;64
-(test "17") ;error
+;(test "17") ;error
 (test "18") ;125
-|#
 (test "19") ;100
 (test "20") ;2000400

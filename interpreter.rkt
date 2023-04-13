@@ -10,9 +10,9 @@
 (require "functionParser.rkt")
 
 (define testFile "mainTest.txt")
-(define testFile2 "tests/test17.txt")
+(define testFile2 "tests/test6.txt")
 
-(parser testFile)
+(parser testFile2)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main interpreter functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -37,7 +37,7 @@
       [(null? tree) (return state)]
       [(null? (first-stmt tree)) (return state)]
       [(eq? (operator (first-stmt tree)) 'function) (state-get-definitions (other-stmts tree) (state-define-function (first-stmt tree) state) return)]
-      [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration (first-stmt tree) state) return)]
+      [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration-global (first-stmt tree) state) return)]
       [else (state-get-definitions (other-stmts tree) state return)])))
 
 (define interpreter-start
@@ -45,9 +45,6 @@
     (call/cc
      (lambda (ret)
        (interpret-statement tree state ret error-break error-continue error-throw)))))
-
-;NEXT STEPS
-;implement global variables w/ box
 
 ;define behavior for various keywords of statements
 (define interpret-statement
@@ -81,11 +78,19 @@
 
 (define value-make-closure
   (lambda (stmt state)
-    (cons (formal-parameters stmt) (cons (function-body stmt) (list (lambda (current-state) current-state))))))
+    (cons (formal-parameters stmt) (cons (function-body stmt) (list (lambda (current-state) (state-function-environment (function-name stmt) current-state)))))))
 
-;(define function-environment
- ; (lambda (stmt state)
-  ;  (lambda (current-state) (current-state)))) ;TODO: Implement function-environment (could also implement as just returning values neccessary to create state in later part)
+;everything on define-state and lower (check for name of function)
+(define state-function-environment
+  (lambda (function-name call-state)
+    (if (var-in-layer? function-name (top-layer call-state)) call-state (state-function-environment function-name (cdr call-state)))))
+
+(define var-in-layer?
+  (lambda (var layer)
+    (cond
+      [(null? layer) #f]
+      [(eq? var (car (car layer))) #t]
+      [else (var-in-layer? var (cdr layer))])))
 
 (define function-call-name cadr)
 
@@ -152,6 +157,10 @@
   (lambda (expr state)
     (value-process-expression (decl-right-operand expr) state (lambda (v) (state-var-declaration (left-operand expr) v state)))))
 
+(define state-declaration-global
+  (lambda (expr state)
+    (value-process-expression (decl-right-operand expr) state (lambda (v) (state-var-declaration-global (left-operand expr) v state)))))
+
 ;sets the value of a variable
 (define state-assignmnet
   (lambda (expr state)
@@ -174,11 +183,26 @@
       [else (var-is-declared? var (rest-of-state state))])))
 
 ;declares a variable
-(define state-var-declaration
+(define state-var-declaration-global
   (lambda (var val state)
     (if (var-is-declared? var state)
         (error 'vardeclaredtwice "Variable already declared")
         (cons (cons (new-binding-pair var val) (top-layer state)) (cdr state)))))
+
+(define state-var-declaration
+  (lambda (var val state)
+    (if (var-is-declared-not-global? var state)
+        (error 'vardeclaredtwice "Variable already declared")
+        (cons (cons (new-binding-pair var val) (top-layer state)) (cdr state)))))
+
+(define var-is-declared-not-global?
+  (lambda (var state)
+    (cond
+      [(null? state) #f]
+      [(null? (cdr state)) #f] ; big change from normal one
+      [(null? (top-layer state)) (var-is-declared-not-global? var (cdr state))]
+      [(eq? var (top-first-var-name state)) #t] ; car state = top-layer, car top-layer = first-binding-pair, car first-binding-pair = var name
+      [else (var-is-declared-not-global? var (rest-of-state state))])))
 
 ;updates the value of an already defined variable
 (define state-update-var
@@ -264,8 +288,8 @@
     (cond
       [(null? expr) (return '())]
       [(not (list? expr)) (return (value-single-expr expr state))] ; if just a value
+      [(eq? (operator expr) 'funcall) (return (value-function-call expr state))]
       [(is-one-operand? expr) (value-single-operand-expr expr state return)] ; if only one operand
-      [(eq? (operator expr) 'funcall) (value-function-call expr state)]
       [(list? (left-operand expr)) (if (list? (right-operand expr)) ; if left-operand is a list (nested expression), recurse through it - if right-operand is a list, recurse through it
                                        (value-process-expression (left-operand expr) state
                                                                  (lambda (v1) (value-process-expression (right-operand expr) state
@@ -396,9 +420,8 @@
     (interpret (string-append (string-append "tests/test" num) ".txt"))))
 
 ;main interpreter call
-(interpret testFile)
-
-#|
+;(interpret testFile)
+#||#
 (test "1") ;10
 (test "2") ;14
 (test "3") ;45
@@ -410,7 +433,7 @@
 (test "9") ;24
 (test "10") ;2
 (test "11") ;35
-(test "12") ;error
+(test "12") ;error - custom error message?
 (test "13") ;90
 (test "14") ;69
 (test "15") ;87
@@ -419,4 +442,3 @@
 (test "18") ;125
 (test "19") ;100
 (test "20") ;2000400
-|#

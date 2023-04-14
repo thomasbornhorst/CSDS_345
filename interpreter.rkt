@@ -25,7 +25,7 @@
 (define error-continue (lambda (v) (error 'continueoutsideloop  "Continue statement not inside while loop")))
 (define error-throw (lambda (v) (error 'throwwithoutcatch "Throw statement without catch")))
 
-;starts interpreter
+;starts interpreter - runs outer layer then calls main
 (define interpreter-main
   (lambda (tree state)
     (state-get-definitions tree state error-throw (lambda (s) (interpreter-start (closure-function-body (value-get-var 'main s)) (state-add-layer s))))))
@@ -40,6 +40,7 @@
       [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration-global (first-stmt tree) state throw) throw return)]
       [else (state-get-definitions (other-stmts tree) state return)])))
 
+;start of rest of interpreter
 (define interpreter-start
   (lambda (tree state)
     (call/cc
@@ -67,69 +68,6 @@
       [(eq? (operator (first-stmt tree)) 'throw) (value-process-expression (first-operand (first-stmt tree)) state error-throw (lambda (v) (throw (state-var-declaration 'throw v state))))]
       [(eq? (operator (first-stmt tree)) 'finally) (interpret-statement (cadr (first-stmt tree)) state main-return break continue throw)]
       [else (error 'norelop "No relevant statements found")])))
-
-(define function-name cadr)
-(define formal-parameters caddr)
-(define function-body cadddr)
-
-(define state-define-function
-  (lambda (stmt state)
-    (state-var-declaration (function-name stmt) (value-make-closure stmt state) state)))
-
-(define value-make-closure
-  (lambda (stmt state)
-    (cons (formal-parameters stmt) (cons (function-body stmt) (list (lambda (current-state) (state-function-environment (function-name stmt) current-state)))))))
-
-;everything on define-state and lower (check for name of function)
-(define state-function-environment
-  (lambda (function-name call-state)
-    (if (var-in-layer? function-name (top-layer call-state)) call-state (state-function-environment function-name (cdr call-state)))))
-
-(define var-in-layer?
-  (lambda (var layer)
-    (cond
-      [(null? layer) #f]
-      [(eq? var (car (car layer))) #t]
-      [else (var-in-layer? var (cdr layer))])))
-
-(define function-call-name cadr)
-
-;only modifications to the state will be through global variables so don't need to actually return the state
-(define state-function-call
-  (lambda (stmt state throw return)
-    (return (value-function-call stmt state throw))))
-
-;get closure then call function to deal with processing the rest of the function
-(define value-function-call
-  (lambda (stmt state throw)
-    (value-function-call-with-closure stmt (value-get-var (function-call-name stmt) state) state throw)))
-
-(define actual-parameters cddr)
-(define closure-formal-parameters car)
-(define closure-function-body cadr)
-(define get-function-environment caddr)
-
-;Get fstate -> bind parameters -> run function body
-;TODO: Fix that #t will become 'true here on return?
-(define value-function-call-with-closure
-  (lambda (stmt closure state throw)
-    (call/cc
-     (lambda (ret)
-       (state-function-throw (call/cc (lambda (new-throw) 
-    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer ((get-function-environment closure) state)) state throw) ret error-break error-continue new-throw))) state throw)))))
-
-;if throw in fstate -> add top layer of fstate to state -> throw with state
-(define state-function-throw
-  (lambda (fstate state throw)
-    (if (var-is-declared? 'throw fstate) (throw (cons (top-layer fstate) state)) state)))
-     
-;bind actual parameters to formal parameters
-(define state-bind-parameters
-  (lambda (formal-parameters actual-parameters fstate state throw)
-    (cond
-      [(and (null? formal-parameters) (null? actual-parameters)) fstate]
-      [(or (null? formal-parameters) (null? actual-parameters)) (error 'mismatchedparams "Mismatched parameters and arguments")]
-      [else (value-process-expression (car actual-parameters) state throw (lambda (v) (state-bind-parameters (cdr formal-parameters) (cdr actual-parameters) (state-var-declaration (car formal-parameters) v fstate) state throw)))])))
 
 ;implementation of a try statement
 (define state-try
@@ -179,6 +117,63 @@
   (lambda (expr state throw return)
     (value-process-expression (first-operand expr) state throw (lambda (v) (return (value-convert-return v))))))
 
+;;;;;;;;;;;;;;;;; FUNCTIONS
+
+;function definition
+(define state-define-function
+  (lambda (stmt state)
+    (state-var-declaration (function-name stmt) (value-make-closure stmt state) state)))
+
+;make closure for function
+(define value-make-closure
+  (lambda (stmt state)
+    (cons (formal-parameters stmt) (cons (function-body stmt) (list (lambda (current-state) (state-function-environment (function-name stmt) current-state)))))))
+
+;take in state at call and return function environment - everything on define-state and lower (check for name of function)
+(define state-function-environment
+  (lambda (function-name call-state)
+    (if (var-in-layer? function-name (top-layer call-state)) call-state (state-function-environment function-name (cdr call-state)))))
+
+;check if variable is in the layer given
+(define var-in-layer?
+  (lambda (var layer)
+    (cond
+      [(null? layer) #f]
+      [(eq? var (var-name (first-pair layer))) #t]
+      [else (var-in-layer? var (rest-of-pairs layer))])))
+
+;call function - only modifications to the state will be through global variables so don't need to actually return the state
+(define state-function-call
+  (lambda (stmt state throw return)
+    (return (value-function-call stmt state throw))))
+
+;get closure, call function, and return the value
+(define value-function-call
+  (lambda (stmt state throw)
+    (value-function-call-with-closure stmt (value-get-var (function-call-name stmt) state) state throw)))
+
+;Get fstate -> bind parameters -> run function body
+(define value-function-call-with-closure
+  (lambda (stmt closure state throw)
+    (call/cc
+     (lambda (ret)
+       (state-function-throw (call/cc (lambda (new-throw) 
+    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer ((get-function-environment closure) state)) state throw) ret error-break error-continue new-throw))) state throw)))))
+
+;if throw in fstate -> add top layer of fstate to state -> throw with state
+(define state-function-throw
+  (lambda (fstate state throw)
+    (if (var-is-declared? 'throw fstate) (throw (state-add-on-layer (top-layer fstate) state)) state)))
+     
+;bind actual parameters to formal parameters
+(define state-bind-parameters
+  (lambda (formal-parameters actual-parameters fstate state throw)
+    (cond
+      [(and (null? formal-parameters) (null? actual-parameters)) fstate]
+      [(or (null? formal-parameters) (null? actual-parameters)) (error 'mismatchedparams "Mismatched parameters and arguments")]
+      [else (value-process-expression (rest-of-parameters actual-parameters) state throw (lambda (v) (state-bind-parameters (rest-of-parameters formal-parameters) (rest-of-parameters actual-parameters) (state-var-declaration (first-parameter formal-parameters) v fstate) state throw)))])))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;checks whether a given variable is declared
@@ -186,31 +181,23 @@
   (lambda (var state)
     (cond
       [(null? state) #f]
-      [(null? (top-layer state)) (var-is-declared? var (cdr state))]
+      [(null? (top-layer state)) (var-is-declared? var (rest-of-pairs state))]
       [(eq? var (top-first-var-name state)) #t] ; car state = top-layer, car top-layer = first-binding-pair, car first-binding-pair = var name
       [else (var-is-declared? var (rest-of-state state))])))
 
-;declares a variable
+;declares a "global" variable, making sure it ins't defined in any layer
 (define state-var-declaration-global
   (lambda (var val state)
     (if (var-is-declared? var state)
         (error 'vardeclaredtwice "Variable already declared")
         (cons (cons (new-binding-pair var val) (top-layer state)) (cdr state)))))
 
+;defines variable, checking that it isn't defined in top layer
 (define state-var-declaration
   (lambda (var val state)
     (if (var-in-layer? var (top-layer state))
         (error 'vardeclaredtwice "Variable already declared")
         (cons (cons (new-binding-pair var val) (top-layer state)) (cdr state)))))
-
-(define var-is-declared-not-global?
-  (lambda (var state)
-    (cond
-      [(null? state) #f]
-      [(null? (cdr state)) #f] ; big change from normal one
-      [(null? (top-layer state)) (var-is-declared-not-global? var (cdr state))]
-      [(eq? var (top-first-var-name state)) #t] ; car state = top-layer, car top-layer = first-binding-pair, car first-binding-pair = var name
-      [else (var-is-declared-not-global? var (rest-of-state state))])))
 
 ;updates the value of an already defined variable
 (define state-update-var
@@ -331,6 +318,37 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; helper functions to abstract the details and get the denotational code above to read better ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;function abstractions:
+;function name in definition
+(define function-name cadr)
+
+;formal parameters of statement when defining
+(define formal-parameters caddr)
+
+;function body
+(define function-body cadddr)
+
+;function name in call
+(define function-call-name cadr)
+
+;actual parameters of statement
+(define actual-parameters cddr)
+
+;formal parameters in closure
+(define closure-formal-parameters car)
+
+;function body in closure
+(define closure-function-body cadr)
+
+;returns function enviornment function from closure
+(define get-function-environment caddr)
+
+;first parameter in list
+(define first-parameter car)
+
+;other parameters in list
+(define rest-of-parameters cdr)
+
 ;abstraction for if and while functions
 (define value-check-condition
   (lambda (stmt state throw)
@@ -397,6 +415,9 @@
   (lambda (operator left-operand right-operand)
     (cons operator (cons left-operand (list right-operand)))))
 
+;add layer on top of state
+(define state-add-on-layer cons)
+
 ;defines the top layer as car
 (define top-layer car)
 
@@ -410,6 +431,9 @@
 (define rest-of-state
   (lambda (state)
     (cons (cdr (top-layer state)) (cdr state))))
+
+;other pairs in layer
+(define rest-of-pairs cdr)
 
 ;returns a new binding pair with a var and val
 (define new-binding-pair
@@ -446,7 +470,7 @@
 (test "14") ;69
 (test "15") ;87
 (test "16") ;64
-;(test "17") ;error
+;(test "17") ;error - var out of scope
 (test "18") ;125
 (test "19") ;100
 (test "20") ;2000400

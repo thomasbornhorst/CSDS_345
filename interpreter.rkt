@@ -171,7 +171,7 @@
     (cond
       [(and (null? formal-parameters) (null? actual-parameters)) fstate]
       [(or (null? formal-parameters) (null? actual-parameters)) (error 'mismatchedparams "Mismatched parameters and arguments")]
-      [else (value-process-expression (rest-of-parameters actual-parameters) state throw (lambda (v) (state-bind-parameters (rest-of-parameters formal-parameters) (rest-of-parameters actual-parameters) (state-var-declaration (first-parameter formal-parameters) v fstate) state throw)))])))
+      [else (value-process-expression (first-parameter actual-parameters) state throw (lambda (v) (state-bind-parameters (rest-of-parameters formal-parameters) (rest-of-parameters actual-parameters) (state-var-declaration (first-parameter formal-parameters) v fstate) state throw)))])))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

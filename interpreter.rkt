@@ -7,7 +7,7 @@
 ;;;; ***************************************************
 
 #lang racket
-(require "functionParser.rkt")
+(require "classParser.rkt")
 
 (define testFile "mainTest.txt")
 (define testFile2 "tests/test19.txt")
@@ -448,29 +448,22 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Testing ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define test
-  (lambda (num)
-    (interpret (string-append (string-append "tests/test" num) ".txt"))))
+  (lambda (num class-name)
+    (interpret (string-append (string-append "tests/test" num) ".txt") class-name)))
 
 ;main interpreter call
 ;(interpret testFile)
 
-(test "1") ;10
-(test "2") ;14
-(test "3") ;45
-(test "4") ;55
-(test "5") ;1
-(test "6") ;115
-(test "7") ;true
-(test "8") ;20
-(test "9") ;24
-(test "10") ;2
-(test "11") ;35
-;(test "12") ;error - mismatchedparams
-(test "13") ;90
-(test "14") ;69
-(test "15") ;87
-(test "16") ;64
-;(test "17") ;error - var out of scope
-(test "18") ;125
-(test "19") ;100
-(test "20") ;2000400
+(test "1" "A") ;15
+(test "2" "A") ;12
+(test "3" "A") ;125
+(test "4" "A") ;36
+(test "5" "A") ;54
+(test "6" "A") ;110
+(test "7" "C") ;26
+(test "8" "Square") ;117
+(test "9" "Square") ;32
+(test "10" "List") ;15
+(test "11" "List") ;123456
+(test "12" "List") ;5285
+(test "13" "C") ;-716

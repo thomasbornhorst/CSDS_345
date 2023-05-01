@@ -10,7 +10,7 @@
 (require "classParser.rkt")
 
 (define testFile "mainTest.txt")
-(define testFile2 "tests/test1.txt")
+(define testFile2 "tests/test2.txt")
 
 (parser testFile)
 
@@ -24,6 +24,7 @@
 (define error-break (lambda(v) (error 'breakoutsideloop "Break statement not inside while loop")))
 (define error-continue (lambda (v) (error 'continueoutsideloop  "Continue statement not inside while loop")))
 (define error-throw (lambda (v) (error 'throwwithoutcatch "Throw statement without catch")))
+(define error-return (lambda (v) (error 'returnnotpossible "Return called outside function/class")))
 
 ;starts interpreter - runs outer layer then calls main
 (define interpreter-main
@@ -38,16 +39,6 @@
       [(eq? (operator (first-stmt tree)) 'class) (state-get-class-definitions (other-stmts tree) (state-define-class (first-stmt tree) state) return)]
       [else (state-get-class-definitions (other-stmts tree) state return)])))
 
-;outer layer - global variable declarations & function definitions
-(define state-get-definitions
-  (lambda (tree state throw return)
-    (cond
-      [(null? tree) (return state)]
-      [(null? (first-stmt tree)) (return state)]
-      [(eq? (operator (first-stmt tree)) 'function) (state-get-definitions (other-stmts tree) (state-define-function (first-stmt tree) state) throw return)]
-      [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration-global (first-stmt tree) state throw) throw return)]
-      [else (state-get-definitions (other-stmts tree) state throw return)])))
-
 ;start of rest of interpreter
 (define interpreter-start
   (lambda (tree state)
@@ -61,7 +52,6 @@
     (cond
       [(null? tree) state]
       [(null? (first-stmt tree)) state]
-      [(eq? (operator (first-stmt tree)) 'function) (interpret-statement (other-stmts tree) (state-define-function (first-stmt tree) state) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'var) (interpret-statement (other-stmts tree) (state-declaration (first-stmt tree) state throw) main-return break continue throw)]
       [(eq? (operator (first-stmt tree)) 'funcall) (state-function-call (first-stmt tree) state throw (lambda (v) (interpret-statement (other-stmts tree) state main-return break continue throw)))]
       [(eq? (operator (first-stmt tree)) 'if) (interpret-statement (other-stmts tree) (state-if (first-stmt tree) state main-return break continue throw) main-return break continue throw)]
@@ -92,6 +82,9 @@
 (define class-closure-constructors
   (lambda (stmt) (cadddr (cdr stmt))))
 
+(define instance-closure-class-name car)
+(define instance-closure-fields cadr)
+
 (define value-class-closure-find-main
   (lambda (class-closure)
     (value-get-var 'main (class-closure-methods class-closure))))      
@@ -104,7 +97,7 @@
 ;make closure for class - super class, instance field names & expressions for initial values, methods/function names & closures, class field names/values, constructors
 (define value-make-class-closure
   (lambda (stmt state)
-    (cons (value-class-definition-get-super (class-definition-extends stmt)) (cons (value-class-definition-get-instance-fields (class-definition-body stmt)) (cons (value-class-definition-get-methods (class-definition-body stmt)) (cons (value-class-definition-get-class-fields (class-definition-body stmt)) (list (value-class-definition-get-constructors (class-definition-body stmt)))))))))
+    (cons (value-class-definition-get-super (class-definition-extends stmt)) (cons (value-class-definition-get-instance-fields (class-definition-body stmt)) (cons (value-class-definition-get-methods (class-definition-body stmt) (class-definition-name stmt)) (cons (value-class-definition-get-class-fields (class-definition-body stmt)) (list (value-class-definition-get-constructors (class-definition-body stmt)))))))))
 
 ;get name of super class
 (define value-class-definition-get-super
@@ -124,11 +117,12 @@
 
 ;get methods / function names and closures (abstract and static functions)
 (define value-class-definition-get-methods
-  (lambda (class-body)
+  (lambda (class-body class-name)
     (cond
       [(null? class-body) (state-init)]
-      [(or (eq? (operator (first-stmt class-body)) 'function) (eq? (operator (first-stmt class-body)) 'static-function)) (state-define-function (first-stmt class-body) (value-class-definition-get-methods (other-stmts class-body)))]
-      [else (value-class-definition-get-methods (other-stmts class-body))])))
+      [(eq? (operator (first-stmt class-body)) 'function) (state-define-function-nonstatic (first-stmt class-body) (value-class-definition-get-methods (other-stmts class-body) class-name) class-name)]
+      [(eq? (operator (first-stmt class-body)) 'static-function) (state-define-function (first-stmt class-body) (value-class-definition-get-methods (other-stmts class-body) class-name) class-name)]
+      [else (value-class-definition-get-methods (other-stmts class-body) class-name)])))
 
 ;get class field names / initial values
 (define value-class-definition-get-class-fields
@@ -149,17 +143,17 @@
 ;create instance closure - instance's class, instance field values
 (define value-make-instance-closure
   (lambda (class-name state)
-    (cons class-name (list (value-class-init-instance-fields (class-closure-instance-fields (value-get-class-closure class-name state)))))))
+    (cons class-name (list (value-class-init-instance-fields (class-closure-instance-fields (value-get-class-closure class-name state)) state)))))
 
 (define value-get-class-closure
   (lambda (class-name state)
     (value-get-var class-name state)))
 
 (define value-class-init-instance-fields
-  (lambda (class-closure-instance-fields)
-    (if (or (null? class-closure-instance-fields) (first-stmt class-closure-instance-fields)) (state-init)
-        (state-var-declaration (car (first-stmt class-closure-instance-fields)) (value-get-var (car (first-stmt class-closure-instance-fields)) class-closure-instance-fields) (value-class-init-instance-fields (other-stmts class-closure-instance-fields))))))
-
+  (lambda (class-closure-instance-fields state)
+    (if (or (null? class-closure-instance-fields) (null? (first-stmt class-closure-instance-fields))) (state-init)
+        (value-process-expression (value-get-var (top-first-var-name class-closure-instance-fields) class-closure-instance-fields) state error-throw (lambda (v)
+                                                                                                                                                       (state-var-declaration (top-first-var-name class-closure-instance-fields) v (value-class-init-instance-fields (rest-of-state class-closure-instance-fields) state)))))))
 ;;;;;;;;;;
 
 ;implementation of a try statement
@@ -214,21 +208,26 @@
 
 ;function definition
 (define state-define-function
-  (lambda (stmt state)
-    (state-var-declaration (function-name stmt) (value-make-closure stmt state) state)))
+  (lambda (stmt state class-name)
+    (state-var-declaration (function-name stmt) (value-make-closure stmt state class-name) state)))
+
+(define state-define-function-nonstatic
+  (lambda (stmt state class-name)
+    (state-var-declaration (function-name stmt) (value-make-closure-nonstatic stmt state class-name) state)))
 
 ;make closure for function
 (define value-make-closure
-  (lambda (stmt state)
-    (cons (formal-parameters stmt) (value-make-base-closure stmt state))))
+  (lambda (stmt state class-name)
+    (cons (formal-parameters stmt) (value-make-base-closure stmt state class-name))))
+
+;make closure for nonstatic function
+(define value-make-closure-nonstatic
+  (lambda (stmt state class-name)
+    (cons (cons 'this (formal-parameters stmt)) (value-make-base-closure stmt state class-name))))
 
 (define value-make-base-closure
-  (lambda (stmt state)
-    ((cons (function-body stmt) (cons (lambda (current-state) (state-function-environment (function-name stmt) current-state)) (list (lambda (x) (value-functions-class x))))))))
-
-(define value-functions-class
-  (lambda (x)
-    ('())))
+  (lambda (stmt state class-name)
+    (cons (function-body stmt) (cons (lambda (current-state) (state-function-environment (function-name stmt) current-state)) (list class-name)))))
 
 ;take in state at call and return function environment - everything on define-state and lower (check for name of function)
 (define state-function-environment
@@ -251,15 +250,53 @@
 ;get closure, call function, and return the value
 (define value-function-call
   (lambda (stmt state throw)
-    (value-function-call-with-closure stmt (value-get-var (function-call-name stmt) state) state throw)))
+    (if (list? (function-call-name stmt)) (dot-function-call stmt state throw)
+    (value-function-call-with-closure stmt (value-get-var (function-call-name stmt) state) state throw))))
+
+;function name in call
+(define function-call-name cadr)
+
+(define dot-function-call
+  (lambda (stmt state throw)
+    (value-function-call-with-closure-dot stmt (get-function-closure-dot (function-call-name stmt) state) state throw (get-instance-closure (left-operand (function-call-name stmt)) state))))
+
+(define get-function-closure-dot
+  (lambda (dot-expr state)
+    (find-function-in-class-closure (right-operand dot-expr) (get-class-closure-from-instance (left-operand dot-expr) state))))
+
+(define find-function-in-class-closure
+  (lambda (function-name class-closure)
+    (value-get-var function-name (class-closure-methods class-closure))))
+
+(define get-class-closure-from-instance
+  (lambda (instance-name state)
+    (get-class-closure (instance-closure-class-name (get-instance-closure instance-name state)) state)))
+
+(define get-class-closure
+  (lambda (class-name state)
+    (value-get-var class-name state)))
 
 ;Get fstate -> bind parameters -> run function body
-(define value-function-call-with-closure
-  (lambda (stmt closure state throw)
+(define value-function-call-with-closure-dot
+  (lambda (stmt closure state throw instance-value)
     (call/cc
      (lambda (ret)
        (state-function-throw (call/cc (lambda (new-throw) 
-    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer ((get-function-environment closure) state)) state throw) ret error-break error-continue new-throw))) state throw)))))
+    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer (state-get-function-environment-class (function-closure-class closure) state)) state throw instance-value) ret error-break error-continue new-throw))) state throw)))))
+
+(define function-closure-class cadddr)
+
+(define state-get-function-environment-class
+  (lambda (class-name state)
+    (get-class-closure class-name state)))
+
+;Get fstate -> bind parameters -> run function body
+(define value-function-call-with-closure
+  (lambda (stmt closure state throw instance-value)
+    (call/cc
+     (lambda (ret)
+       (state-function-throw (call/cc (lambda (new-throw) 
+    (interpret-statement (closure-function-body closure) (state-bind-parameters (closure-formal-parameters closure) (actual-parameters stmt) (state-add-layer ((get-function-environment closure) state)) state throw instance-value) ret error-break error-continue new-throw))) state throw)))))
 
 ;if throw in fstate -> add top layer of fstate to state -> throw with state
 (define state-function-throw
@@ -268,11 +305,12 @@
      
 ;bind actual parameters to formal parameters
 (define state-bind-parameters
-  (lambda (formal-parameters actual-parameters fstate state throw)
+  (lambda (formal-parameters actual-parameters fstate state throw instance-value)
     (cond
       [(and (null? formal-parameters) (null? actual-parameters)) fstate]
+      [(eq? (first-parameter formal-parameters) 'this) (state-bind-parameters (rest-of-parameters formal-parameters) actual-parameters (state-var-declaration 'this instance-value fstate) state throw instance-value)]
       [(or (null? formal-parameters) (null? actual-parameters)) (error 'mismatchedparams "Mismatched parameters and arguments")]
-      [else (value-process-expression (first-parameter actual-parameters) state throw (lambda (v) (state-bind-parameters (rest-of-parameters formal-parameters) (rest-of-parameters actual-parameters) (state-var-declaration (first-parameter formal-parameters) v fstate) state throw)))])))
+      [else (value-process-expression (first-parameter actual-parameters) state throw (lambda (v) (state-bind-parameters (rest-of-parameters formal-parameters) (rest-of-parameters actual-parameters) (state-var-declaration (first-parameter formal-parameters) v fstate) state throw instance-value)))])))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;variables - functions that directly interact with the state;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -323,6 +361,27 @@
       [(eq? var (top-first-var-name state)) (unbox (cadr (first-pair (top-layer state))))]
       [else (value-get-var var (rest-of-state state))])))
 
+;defines variable, checking that it isn't defined in top layer
+(define state-var-declaration-nonstatic
+  (lambda (var val state)
+    (if (var-in-layer? var (top-layer state))
+        (error 'vardeclaredtwice "Variable already declared")
+        (cons (cons (new-binding-pair var val) (top-layer state)) (cdr state)))))
+
+;updates the value of an already defined variable - updates instance fields
+(define state-update-var-nonstatic
+  (lambda (var val instance-name state)
+    (state-update-var-nonstatic-helper var val instance-name state (lambda (v) state))))
+
+(define state-update-var-nonstatic-helper
+  (lambda (var val instance-name state return)
+    (return (state-update-var var val (instance-closure-fields (get-instance-closure instance-name state))))))
+
+;gets value of variable
+(define value-get-var-nonstatic
+  (lambda (var instance-name state)
+    (value-get-var var (instance-closure-fields (get-instance-closure instance-name state)))))
+
 ;return the starting state
 (define state-init
   (lambda ()
@@ -345,7 +404,6 @@
   (lambda (expr state)
     (cond
       [(or (null? (left-operand expr)) (null? (right-operand expr))) (error 'varnotassgn "Variable not yet assigned")]
-      [(eq? (operator expr) 'dot) '()]
       [(eq? (operator expr) '+) (+         (left-operand expr) (right-operand expr))]
       [(eq? (operator expr) '-) (-         (left-operand expr) (right-operand expr))]
       [(eq? (operator expr) '*) (*         (left-operand expr) (right-operand expr))]
@@ -399,9 +457,21 @@
                                                                 (lambda (v1) (value-process-expression (value-assemble-expression (operator expr) v1 (right-operand expr)) state throw return))))] ; only left-operand is a list
       [(list? (right-operand expr)) (value-process-expression (right-operand expr) state throw
                                                               (lambda (v2) (value-process-expression (value-assemble-expression (operator expr) (left-operand expr) v2) state throw return)))] ; only right-operand is a list
+      [(eq? (operator expr) 'dot) (return (find-instance-field (left-operand expr) (right-operand expr) state))]
       [else (return (value-integer-operations (value-assemble-expression (operator expr) ; (essentially the base case) if neither are lists, make sure each operand is a value and pass to integer/conditional operations functions
                                                                          (value-single-expr (left-operand expr) state)
                                                                          (value-single-expr (right-operand expr) state)) state))])))
+
+;instance variable field - in instance closure
+(define find-instance-field
+  (lambda (instance-name instance-field state)
+    (cond
+      [(eq? instance-name 'this) (value-get-var instance-field (instance-closure-fields (get-instance-closure instance-name state)))]
+      [else (value-get-var instance-field (instance-closure-fields (get-instance-closure instance-name state)))])))
+
+(define get-instance-closure
+  (lambda (instance-name state)
+    (value-get-var instance-name state)))
 
 ;processes the result of an expression with one operand
 (define value-single-operand-expr
@@ -410,7 +480,7 @@
       [(eq? (operator expr) '!) (value-process-expression (first-operand expr) state throw (lambda (v) (return (not v))))]
       [(eq? (operator expr) '-) (value-process-expression (first-operand expr) state throw (lambda (v) (return (* v -1))))])))
 
-;returns the value of an expression with one element
+;returns the value of an expression with one element - add this and super
 (define value-single-expr
   (lambda (expr state)
     (cond
@@ -432,9 +502,6 @@
 
 ;function body
 (define function-body cadddr)
-
-;function name in call
-(define function-call-name cadr)
 
 ;actual parameters of statement
 (define actual-parameters cddr)
@@ -557,7 +624,7 @@
     (interpret (string-append (string-append "tests/test" num) ".txt") class-name)))
 
 ;main interpreter call
-(interpret testFile 'B)
+(interpret testFile 'A)
 
 (test "1" 'A) ;15
 (test "2" 'A) ;12

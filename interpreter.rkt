@@ -220,7 +220,15 @@
 ;make closure for function
 (define value-make-closure
   (lambda (stmt state)
-    (cons (formal-parameters stmt) (cons (function-body stmt) (list (lambda (current-state) (state-function-environment (function-name stmt) current-state)))))))
+    (cons (formal-parameters stmt) (value-make-base-closure stmt state))))
+
+(define value-make-base-closure
+  (lambda (stmt state)
+    ((cons (function-body stmt) (cons (lambda (current-state) (state-function-environment (function-name stmt) current-state)) (list (lambda (x) (value-functions-class x))))))))
+
+(define value-functions-class
+  (lambda (x)
+    ('())))
 
 ;take in state at call and return function environment - everything on define-state and lower (check for name of function)
 (define state-function-environment
@@ -337,6 +345,7 @@
   (lambda (expr state)
     (cond
       [(or (null? (left-operand expr)) (null? (right-operand expr))) (error 'varnotassgn "Variable not yet assigned")]
+      [(eq? (operator expr) 'dot) '()]
       [(eq? (operator expr) '+) (+         (left-operand expr) (right-operand expr))]
       [(eq? (operator expr) '-) (-         (left-operand expr) (right-operand expr))]
       [(eq? (operator expr) '*) (*         (left-operand expr) (right-operand expr))]

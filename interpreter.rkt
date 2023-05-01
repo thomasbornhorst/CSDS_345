@@ -28,15 +28,15 @@
 ;starts interpreter - runs outer layer then calls main
 (define interpreter-main
   (lambda (tree state class-name)
-    (state-get-definitions tree (state-get-class-definitions tree state) error-throw (lambda (s) (interpreter-start (closure-function-body (value-class-closure-find-main (value-get-var class-name s))) (state-add-layer s))))))
+    (state-get-class-definitions tree state (lambda (s) (interpreter-start (closure-function-body (value-class-closure-find-main (value-get-var class-name s))) (state-add-layer s))))))
 
 ;global layer of interpreter getting class definitions
 (define state-get-class-definitions
-  (lambda (tree state)
+  (lambda (tree state return)
     (cond
-      [(null? tree) state]
-      [(eq? (operator (first-stmt tree)) 'class) (state-get-class-definitions (other-stmts tree) (state-define-class (first-stmt tree) state))]
-      [else (state-get-class-definitions (other-stmts tree) state)])))
+      [(null? tree) (return state)]
+      [(eq? (operator (first-stmt tree)) 'class) (state-get-class-definitions (other-stmts tree) (state-define-class (first-stmt tree) state) return)]
+      [else (state-get-class-definitions (other-stmts tree) state return)])))
 
 ;outer layer - global variable declarations & function definitions
 (define state-get-definitions
@@ -157,7 +157,8 @@
 
 (define value-class-init-instance-fields
   (lambda (class-closure-instance-fields)
-    (if (null? class-closure-instance-fields) (state-init) (state-var-declaration (car (first-stmt class-closure-instance-fields)) (value-get-var (car (first-stmt class-closure-instance-fields)) class-closure-instance-fields) (value-class-init-instance-fields (other-stmts class-closure-instance-fields))))))
+    (if (or (null? class-closure-instance-fields) (first-stmt class-closure-instance-fields)) (state-init)
+        (state-var-declaration (car (first-stmt class-closure-instance-fields)) (value-get-var (car (first-stmt class-closure-instance-fields)) class-closure-instance-fields) (value-class-init-instance-fields (other-stmts class-closure-instance-fields))))))
 
 ;;;;;;;;;;
 
@@ -369,6 +370,8 @@
       [(null? val) (error 'returnbeforeinit "Can't return value before initializing it")]
       [else val])))
 
+(define class-new-instance-name cadr)
+
 ;proccesses a given expression
 (define value-process-expression
   (lambda (expr state throw return)
@@ -376,6 +379,7 @@
       [(null? expr) (return '())]
       [(not (list? expr)) (return (value-single-expr expr state))] ; if just a value
       [(eq? (operator expr) 'funcall) (return (value-function-call expr state throw))]
+      [(eq? (operator expr) 'new) (return (value-make-instance-closure (class-new-instance-name expr) state))]
       [(is-one-operand? expr) (value-single-operand-expr expr state throw return)] ; if only one operand
       [(list? (left-operand expr)) (if (list? (right-operand expr)) ; if left-operand is a list (nested expression), recurse through it - if right-operand is a list, recurse through it
                                        (value-process-expression (left-operand expr) state throw
@@ -544,7 +548,7 @@
     (interpret (string-append (string-append "tests/test" num) ".txt") class-name)))
 
 ;main interpreter call
-(interpret testFile 'A)
+(interpret testFile 'B)
 
 (test "1" 'A) ;15
 (test "2" 'A) ;12

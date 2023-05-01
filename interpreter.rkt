@@ -10,16 +10,16 @@
 (require "classParser.rkt")
 
 (define testFile "mainTest.txt")
-(define testFile2 "tests/test19.txt")
+(define testFile2 "tests/test1.txt")
 
-(parser testFile2)
+(parser testFile)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;main interpreter functionality;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;main interpret call that parses file and calls the main interpreter functionality
 (define interpret
-  (lambda (filename)
-    (interpreter-main (parser filename) (state-init))))
+  (lambda (filename class-name)
+    (interpreter-main (parser filename) (state-init) class-name)))
 
 (define error-break (lambda(v) (error 'breakoutsideloop "Break statement not inside while loop")))
 (define error-continue (lambda (v) (error 'continueoutsideloop  "Continue statement not inside while loop")))
@@ -27,8 +27,16 @@
 
 ;starts interpreter - runs outer layer then calls main
 (define interpreter-main
+  (lambda (tree state class-name)
+    (state-get-definitions tree (state-get-class-definitions tree state) error-throw (lambda (s) (interpreter-start (closure-function-body (value-class-closure-find-main (value-get-var class-name s))) (state-add-layer s))))))
+
+;global layer of interpreter getting class definitions
+(define state-get-class-definitions
   (lambda (tree state)
-    (state-get-definitions tree state error-throw (lambda (s) (interpreter-start (closure-function-body (value-get-var 'main s)) (state-add-layer s))))))
+    (cond
+      [(null? tree) state]
+      [(eq? (operator (first-stmt tree)) 'class) (state-get-class-definitions (other-stmts tree) (state-define-class (first-stmt tree) state))]
+      [else (state-get-class-definitions (other-stmts tree) state)])))
 
 ;outer layer - global variable declarations & function definitions
 (define state-get-definitions
@@ -38,7 +46,7 @@
       [(null? (first-stmt tree)) (return state)]
       [(eq? (operator (first-stmt tree)) 'function) (state-get-definitions (other-stmts tree) (state-define-function (first-stmt tree) state) throw return)]
       [(eq? (operator (first-stmt tree)) 'var) (state-get-definitions (other-stmts tree) (state-declaration-global (first-stmt tree) state throw) throw return)]
-      [else (state-get-definitions (other-stmts tree) state return)])))
+      [else (state-get-definitions (other-stmts tree) state throw return)])))
 
 ;start of rest of interpreter
 (define interpreter-start
@@ -68,6 +76,90 @@
       [(eq? (operator (first-stmt tree)) 'throw) (value-process-expression (first-operand (first-stmt tree)) state error-throw (lambda (v) (throw (state-var-declaration 'throw v state))))]
       [(eq? (operator (first-stmt tree)) 'finally) (interpret-statement (cadr (first-stmt tree)) state main-return break continue throw)]
       [else (error 'norelop "No relevant statements found")])))
+
+;;;;;;;;;; CLASSES
+;get certain information from class definition statement
+(define class-definition-name cadr)
+(define class-definition-extends caddr)
+(define class-definition-body cadddr)
+(define class-definition-extends-class-name cadr)
+
+;get certain information from class closure
+(define class-closure-super car)
+(define class-closure-instance-fields cadr)
+(define class-closure-methods caddr)
+(define class-closure-class-fields cadddr)
+(define class-closure-constructors
+  (lambda (stmt) (cadddr (cdr stmt))))
+
+(define value-class-closure-find-main
+  (lambda (class-closure)
+    (value-get-var 'main (class-closure-methods class-closure))))      
+
+;class definition
+(define state-define-class
+  (lambda (stmt state)
+    (state-var-declaration (class-definition-name stmt) (value-make-class-closure stmt state) state)))
+
+;make closure for class - super class, instance field names & expressions for initial values, methods/function names & closures, class field names/values, constructors
+(define value-make-class-closure
+  (lambda (stmt state)
+    (cons (value-class-definition-get-super (class-definition-extends stmt)) (cons (value-class-definition-get-instance-fields (class-definition-body stmt)) (cons (value-class-definition-get-methods (class-definition-body stmt)) (cons (value-class-definition-get-class-fields (class-definition-body stmt)) (list (value-class-definition-get-constructors (class-definition-body stmt)))))))))
+
+;get name of super class
+(define value-class-definition-get-super
+  (lambda (extends-stmt)
+    (if (null? extends-stmt) '() (class-definition-extends-class-name extends-stmt))))
+
+(define stmt-var-name cadr)
+(define stmt-expression caddr)
+
+;get instance field names & expressions that calculate the initial values (if any)
+(define value-class-definition-get-instance-fields
+  (lambda (class-body)
+    (cond
+      [(null? class-body) (state-init)]
+      [(eq? (operator (first-stmt class-body)) 'var) (state-var-declaration (stmt-var-name (first-stmt class-body)) (stmt-expression (first-stmt class-body)) (value-class-definition-get-instance-fields (other-stmts class-body)))]
+      [else (value-class-definition-get-instance-fields (other-stmts class-body))])))
+
+;get methods / function names and closures (abstract and static functions)
+(define value-class-definition-get-methods
+  (lambda (class-body)
+    (cond
+      [(null? class-body) (state-init)]
+      [(or (eq? (operator (first-stmt class-body)) 'function) (eq? (operator (first-stmt class-body)) 'static-function)) (state-define-function (first-stmt class-body) (value-class-definition-get-methods (other-stmts class-body)))]
+      [else (value-class-definition-get-methods (other-stmts class-body))])))
+
+;get class field names / initial values
+(define value-class-definition-get-class-fields
+  (lambda (class-body)
+    (cond
+      [(null? class-body) (state-init)]
+      [(eq? (operator (first-stmt class-body)) 'static-var) (state-var-declaration (stmt-var-name (first-stmt class-body)) (stmt-expression (first-stmt class-body)) (value-class-definition-get-class-fields (other-stmts class-body)))]
+      [else (value-class-definition-get-class-fields (other-stmts class-body))])))
+
+;get constructors
+(define value-class-definition-get-constructors
+  (lambda (class-body)
+    (cond
+      [(null? class-body) (state-init)]
+      [(eq? (operator (first-stmt class-body)) 'constructor) (state-var-declaration (stmt-var-name (first-stmt class-body)) (stmt-expression (first-stmt class-body)) (value-class-definition-get-constructors (other-stmts class-body)))]
+      [else (value-class-definition-get-constructors (other-stmts class-body))])))
+
+;create instance closure - instance's class, instance field values
+(define value-make-instance-closure
+  (lambda (class-name state)
+    (cons class-name (list (value-class-init-instance-fields (class-closure-instance-fields (value-get-class-closure class-name state)))))))
+
+(define value-get-class-closure
+  (lambda (class-name state)
+    (value-get-var class-name state)))
+
+(define value-class-init-instance-fields
+  (lambda (class-closure-instance-fields)
+    (if (null? class-closure-instance-fields) (state-init) (state-var-declaration (car (first-stmt class-closure-instance-fields)) (value-get-var (car (first-stmt class-closure-instance-fields)) class-closure-instance-fields) (value-class-init-instance-fields (other-stmts class-closure-instance-fields))))))
+
+;;;;;;;;;;
 
 ;implementation of a try statement
 (define state-try
@@ -452,18 +544,18 @@
     (interpret (string-append (string-append "tests/test" num) ".txt") class-name)))
 
 ;main interpreter call
-;(interpret testFile)
+(interpret testFile 'A)
 
-(test "1" "A") ;15
-(test "2" "A") ;12
-(test "3" "A") ;125
-(test "4" "A") ;36
-(test "5" "A") ;54
-(test "6" "A") ;110
-(test "7" "C") ;26
-(test "8" "Square") ;117
-(test "9" "Square") ;32
-(test "10" "List") ;15
-(test "11" "List") ;123456
-(test "12" "List") ;5285
-(test "13" "C") ;-716
+(test "1" 'A) ;15
+(test "2" 'A) ;12
+(test "3" 'A) ;125
+(test "4" 'A) ;36
+(test "5" 'A) ;54
+(test "6" 'A) ;110
+(test "7" 'C) ;26
+(test "8" 'Square) ;117
+(test "9" 'Square) ;32
+(test "10" 'List) ;15
+(test "11" 'List) ;123456
+(test "12" 'List) ;5285
+(test "13" 'C) ;-716

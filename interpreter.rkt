@@ -10,7 +10,8 @@
 (require "classParser.rkt")
 
 (define testFile "mainTest.txt")
-(define testFile2 "tests/test6.txt")
+(define testClassName "C")
+(define testFile2 "tests/test7.txt")
 
 (parser testFile)
 
@@ -223,7 +224,11 @@
 ;make closure for nonstatic function
 (define value-make-closure-nonstatic
   (lambda (stmt state class-name)
-    (cons (cons 'this (formal-parameters stmt)) (value-make-base-closure stmt state class-name))))
+    (cons (cons 'super (cons 'this (formal-parameters stmt))) (value-make-base-closure stmt state class-name))))
+
+(define class-has-super?
+  (lambda (class-name state)
+    (not (null? (class-closure-super (get-class-closure class-name state))))))
 
 (define value-make-base-closure
   (lambda (stmt state class-name)
@@ -262,7 +267,10 @@
 
 (define value-function-call-get-instance-closure
   (lambda (dot-expr state)
-    (if (list? (left-operand dot-expr)) (value-new-class-instance (left-operand dot-expr) state) (get-instance-closure (left-operand dot-expr) state))))
+    (cond
+      [(list? (left-operand dot-expr)) (value-new-class-instance (left-operand dot-expr) state)]
+      ;[(eq? (left-operand dot-expr) 'super) (value-new-class-instance (cons 'new (list (class-closure-super (get-class-closure 'this state)))) state)] ;if super -> create new instance of class extended by this
+      [else (get-instance-closure (left-operand dot-expr) state)])))
 
 (define get-function-closure-dot
   (lambda (dot-expr state)
@@ -313,6 +321,7 @@
     (cond
       [(and (null? formal-parameters) (null? actual-parameters)) fstate]
       [(eq? (first-parameter formal-parameters) 'this) (state-bind-parameters (rest-of-parameters formal-parameters) actual-parameters (state-var-declaration 'this instance-value fstate) state throw instance-value)]
+      [(eq? (first-parameter formal-parameters) 'super) (state-bind-parameters (rest-of-parameters formal-parameters) actual-parameters (state-var-declaration 'super (value-new-class-instance (cons 'new (list (class-closure-super (get-class-closure (instance-closure-class-name instance-value) state)))) state) fstate) state throw instance-value)]
       [(or (null? formal-parameters) (null? actual-parameters)) (error 'mismatchedparams "Mismatched parameters and arguments")]
       [else (value-process-expression (first-parameter actual-parameters) state throw (lambda (v) (state-bind-parameters (rest-of-parameters formal-parameters) (rest-of-parameters actual-parameters) (state-var-declaration (first-parameter formal-parameters) v fstate) state throw instance-value)))])))
 
@@ -477,7 +486,7 @@
 
 (define value-new-class-instance
   (lambda (expr state)
-    (value-make-instance-closure (class-new-instance-name expr) state)))
+    (if (null? (class-new-instance-name expr)) '() (value-make-instance-closure (class-new-instance-name expr) state))))
 
 ;instance variable field - in instance closure
 (define find-instance-field
@@ -643,7 +652,7 @@
     (interpret (string-append (string-append "tests/test" num) ".txt") class-name)))
 
 ;main interpreter call
-(interpret testFile "A")
+(interpret testFile testClassName)
 
 (test "1" "A") ;15
 (test "2" "A") ;12

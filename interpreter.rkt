@@ -10,7 +10,7 @@
 (require "classParser.rkt")
 
 (define testFile "mainTest.txt")
-(define testFile2 "tests/test4.txt")
+(define testFile2 "tests/test6.txt")
 
 (parser testFile)
 
@@ -258,7 +258,11 @@
 
 (define dot-function-call
   (lambda (stmt state throw)
-    (value-function-call-with-closure-dot stmt (get-function-closure-dot (function-call-name stmt) state) state throw (get-instance-closure (left-operand (function-call-name stmt)) state))))
+    (value-function-call-with-closure-dot stmt (get-function-closure-dot (function-call-name stmt) state) state throw (value-function-call-get-instance-closure (function-call-name stmt) state))))
+
+(define value-function-call-get-instance-closure
+  (lambda (dot-expr state)
+    (if (list? (left-operand dot-expr)) (value-new-class-instance (left-operand dot-expr) state) (get-instance-closure (left-operand dot-expr) state))))
 
 (define get-function-closure-dot
   (lambda (dot-expr state)
@@ -270,7 +274,7 @@
 
 (define get-class-closure-from-instance
   (lambda (instance-name state)
-    (get-class-closure (instance-closure-class-name (get-instance-closure instance-name state)) state)))
+    (if (list? instance-name) (get-class-closure (first-operand instance-name) state) (get-class-closure (instance-closure-class-name (get-instance-closure instance-name state)) state))))
 
 (define get-class-closure
   (lambda (class-name state)
@@ -443,35 +447,46 @@
 
 (define class-new-instance-name cadr)
 
-;proccesses a given expression
 (define value-process-expression
   (lambda (expr state throw return)
+    (value-process-expression-main expr state throw return #t)))
+
+;proccesses a given expression
+(define value-process-expression-main
+  (lambda (expr state throw return recurse)
     (cond
       [(null? expr) (return '())]
       [(not (list? expr)) (return (value-single-expr expr state))] ; if just a value
       [(eq? (operator expr) 'funcall) (return (value-function-call expr state throw))]
-      [(eq? (operator expr) 'new) (return (value-make-instance-closure (class-new-instance-name expr) state))]
+      [(eq? (operator expr) 'new) (return (value-new-class-instance expr state))]
       [(is-one-operand? expr) (value-single-operand-expr expr state throw return)] ; if only one operand
-      [(list? (left-operand expr)) (if (list? (right-operand expr)) ; if left-operand is a list (nested expression), recurse through it - if right-operand is a list, recurse through it
+      [(and (list? (left-operand expr)) recurse) (if (list? (right-operand expr)) ; if left-operand is a list (nested expression), recurse through it - if right-operand is a list, recurse through it
                                        (value-process-expression (left-operand expr) state throw
                                                                  (lambda (v1) (value-process-expression (right-operand expr) state throw
                                                                                                         (lambda (v2) (value-process-expression
                                                                                                                       (value-assemble-expression (operator expr) v1 v2) state throw return))))) ; both operands are lists
                                       (value-process-expression (left-operand expr) state throw
-                                                                (lambda (v1) (value-process-expression (value-assemble-expression (operator expr) v1 (right-operand expr)) state throw return))))] ; only left-operand is a list
-      [(list? (right-operand expr)) (value-process-expression (right-operand expr) state throw
+                                                                (lambda (v1) (value-process-expression-main (value-assemble-expression (operator expr) v1 (right-operand expr)) state throw return #f))))] ; only left-operand is a list
+      [(and (list? (right-operand expr)) recurse) (value-process-expression (right-operand expr) state throw
                                                               (lambda (v2) (value-process-expression (value-assemble-expression (operator expr) (left-operand expr) v2) state throw return)))] ; only right-operand is a list
-      [(eq? (operator expr) 'dot) (return (find-instance-field (left-operand expr) (right-operand expr) state))]
+      [(eq? (operator expr) 'dot) (if (list? (left-operand expr)) (return (find-instance-field-in-closure (right-operand expr) (left-operand expr)))
+                                             (return (find-instance-field (left-operand expr) (right-operand expr) state)))]
       [else (return (value-integer-operations (value-assemble-expression (operator expr) ; (essentially the base case) if neither are lists, make sure each operand is a value and pass to integer/conditional operations functions
                                                                          (value-single-expr (left-operand expr) state)
                                                                          (value-single-expr (right-operand expr) state)) state))])))
 
+(define value-new-class-instance
+  (lambda (expr state)
+    (value-make-instance-closure (class-new-instance-name expr) state)))
+
 ;instance variable field - in instance closure
 (define find-instance-field
   (lambda (instance-name instance-field state)
-    (cond
-      [(eq? instance-name 'this) (value-get-var instance-field (instance-closure-fields (get-instance-closure instance-name state)))]
-      [else (value-get-var instance-field (instance-closure-fields (get-instance-closure instance-name state)))])))
+    (find-instance-field-in-closure instance-field (get-instance-closure instance-name state))))
+
+(define find-instance-field-in-closure
+  (lambda (instance-field instance-closure)
+    (value-get-var instance-field (instance-closure-fields instance-closure))))
 
 (define get-instance-closure
   (lambda (instance-name state)

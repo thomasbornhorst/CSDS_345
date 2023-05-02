@@ -288,7 +288,7 @@
 
 (define state-get-function-environment-class
   (lambda (class-name state)
-    (get-class-closure class-name state)))
+    (if (var-in-layer? class-name (top-layer state)) state (state-get-function-environment-class class-name (cdr state)))))
 
 ;Get fstate -> bind parameters -> run function body
 (define value-function-call-with-closure

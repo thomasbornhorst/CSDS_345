@@ -3,7 +3,8 @@
 ;;;; Tyler Avery (tma58)
 ;;;; Thomas Bornhorst (thb34)
 ;;;; CSDS 345 Spring 2023
-;;;; Simple Language Interpreter Project, Part 2
+;;;; Simple Language Interpreter Project, Part 4
+;;;; NOTE: Polymorphism not totally / correctly implemented but super functions can be called and super values are stored in the instance field values
 ;;;; ***************************************************
 
 #lang racket
@@ -110,6 +111,7 @@
   (lambda (x)
     (if (null? (cddr x)) '() (caddr x))))
 
+;start of getting instance fields (accounts for if there is a super class)
 (define value-class-definition-get-instance-fields-start
   (lambda (class-body class-super state)
     (if (null? class-super) (value-class-definition-get-instance-fields class-body) (cons (top-layer (value-class-definition-get-instance-fields class-body)) (class-closure-instance-fields (get-class-closure class-super state))))))
@@ -152,10 +154,12 @@
   (lambda (class-name state)
     (cons class-name (list (value-class-init-instance-fields (class-closure-instance-fields (value-get-class-closure class-name state)) state)))))
 
+;get class closure given class-name
 (define value-get-class-closure
   (lambda (class-name state)
     (value-get-var class-name state)))
 
+;initialize instance fields of the class
 (define value-class-init-instance-fields
   (lambda (class-closure-instance-fields state)
     (if (or (null? class-closure-instance-fields) (null? (first-stmt class-closure-instance-fields))) (state-init)
@@ -218,6 +222,7 @@
   (lambda (stmt state class-name)
     (state-var-declaration (function-name stmt) (value-make-closure stmt state class-name) state)))
 
+;nonstatic function definition
 (define state-define-function-nonstatic
   (lambda (stmt state class-name)
     (state-var-declaration (function-name stmt) (value-make-closure-nonstatic stmt state class-name) state)))
@@ -232,10 +237,12 @@
   (lambda (stmt state class-name)
     (cons (cons 'super (cons 'this (formal-parameters stmt))) (value-make-base-closure stmt state class-name))))
 
+;return true if class has a super
 (define class-has-super?
   (lambda (class-name state)
     (not (null? (class-closure-super (get-class-closure class-name state))))))
 
+;base components of closure (not including super and this)
 (define value-make-base-closure
   (lambda (stmt state class-name)
     (cons (function-body stmt) (cons (lambda (current-state) (state-function-environment (function-name stmt) current-state)) (list class-name)))))
@@ -267,29 +274,34 @@
 ;function name in call
 (define function-call-name cadr)
 
+;function call for calls from a class instance
 (define dot-function-call
   (lambda (stmt state throw)
     (value-function-call-with-closure-dot stmt (get-function-closure-dot (function-call-name stmt) state) state throw (value-function-call-get-instance-closure (function-call-name stmt) state))))
 
+;get instance closure from dot expression
 (define value-function-call-get-instance-closure
   (lambda (dot-expr state)
     (cond
       [(list? (left-operand dot-expr)) (value-new-class-instance (left-operand dot-expr) state)]
-      ;[(eq? (left-operand dot-expr) 'super) (value-new-class-instance (cons 'new (list (class-closure-super (get-class-closure 'this state)))) state)] ;if super -> create new instance of class extended by this
       [else (get-instance-closure (left-operand dot-expr) state)])))
 
+;get function closure
 (define get-function-closure-dot
   (lambda (dot-expr state)
     (find-function-in-class-closure (right-operand dot-expr) (get-class-closure-from-instance (left-operand dot-expr) state))))
 
+;find function given class closure
 (define find-function-in-class-closure
   (lambda (function-name class-closure)
     (value-get-var function-name (class-closure-methods class-closure))))
 
+;get class closure from instance name
 (define get-class-closure-from-instance
   (lambda (instance-name state)
     (if (list? instance-name) (get-class-closure (first-operand instance-name) state) (get-class-closure (instance-closure-class-name (get-instance-closure instance-name state)) state))))
 
+;get class closure from class-name
 (define get-class-closure
   (lambda (class-name state)
     (value-get-var class-name state)))
@@ -304,6 +316,7 @@
 
 (define function-closure-class cadddr)
 
+;get the function environment with a class
 (define state-get-function-environment-class
   (lambda (class-name state)
     (if (var-in-layer? class-name (top-layer state)) state (state-get-function-environment-class class-name (cdr state)))))

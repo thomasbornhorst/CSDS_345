@@ -368,8 +368,12 @@
       [(eq? var (top-first-var-name state)) (begin (set-box! (cadr (first-pair (top-layer state))) val) (return state))]
       [else (state-update-var-CPS var val (rest-of-state state) (lambda (v) (return (cons (cons (first-pair (top-layer state)) (top-layer v)) (cdr v)))))])))
 
-;gets value of variable
 (define value-get-var
+  (lambda (var state)
+    (if (var-is-declared? var state) (value-get-var-local var state) (value-get-var-local var (instance-closure-fields (value-get-var-local 'this state))))))
+
+;gets value of variable
+(define value-get-var-local
   (lambda (var state)
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]

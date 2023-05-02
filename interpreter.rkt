@@ -98,7 +98,7 @@
 ;make closure for class - super class, instance field names & expressions for initial values, methods/function names & closures, class field names/values, constructors
 (define value-make-class-closure
   (lambda (stmt state)
-    (cons (value-class-definition-get-super (class-definition-extends stmt)) (cons (value-class-definition-get-instance-fields (class-definition-body stmt)) (cons (value-class-definition-get-methods (class-definition-body stmt) (class-definition-name stmt)) (cons (value-class-definition-get-class-fields (class-definition-body stmt)) (list (value-class-definition-get-constructors (class-definition-body stmt)))))))))
+    (cons (value-class-definition-get-super (class-definition-extends stmt)) (cons (value-class-definition-get-instance-fields-start (class-definition-body stmt) (value-class-definition-get-super (class-definition-extends stmt)) state) (cons (value-class-definition-get-methods (class-definition-body stmt) (class-definition-name stmt)) (cons (value-class-definition-get-class-fields (class-definition-body stmt)) (list (value-class-definition-get-constructors (class-definition-body stmt)))))))))
 
 ;get name of super class
 (define value-class-definition-get-super
@@ -106,7 +106,13 @@
     (if (null? extends-stmt) '() (class-definition-extends-class-name extends-stmt))))
 
 (define stmt-var-name cadr)
-(define stmt-expression caddr)
+(define stmt-expression
+  (lambda (x)
+    (if (null? (cddr x)) '() (caddr x))))
+
+(define value-class-definition-get-instance-fields-start
+  (lambda (class-body class-super state)
+    (if (null? class-super) (value-class-definition-get-instance-fields class-body) (cons (top-layer (value-class-definition-get-instance-fields class-body)) (class-closure-instance-fields (get-class-closure class-super state))))))
 
 ;get instance field names & expressions that calculate the initial values (if any)
 (define value-class-definition-get-instance-fields

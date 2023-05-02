@@ -16,7 +16,7 @@ class B extends A {
   var z = 3;
 
   function m() {
-    return super.m();
+    return this.m2();
   }
 
   function m2() {

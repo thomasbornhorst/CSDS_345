@@ -10,7 +10,7 @@
 (require "classParser.rkt")
 
 (define testFile "mainTest.txt")
-(define testFile2 "tests/test2.txt")
+(define testFile2 "tests/test4.txt")
 
 (parser testFile)
 
@@ -321,6 +321,7 @@
     (cond
       [(null? state) #f]
       [(null? (top-layer state)) (var-is-declared? var (rest-of-pairs state))]
+      [(null? (first-pair (top-layer state))) (var-is-declared? var (rest-of-pairs state))]
       [(eq? var (top-first-var-name state)) #t] ; car state = top-layer, car top-layer = first-binding-pair, car first-binding-pair = var name
       [else (var-is-declared? var (rest-of-state state))])))
 
@@ -347,8 +348,10 @@
 (define state-update-var-CPS
   (lambda (var val state return)
     (cond
+      [(list? var) (state-update-var-CPS (right-operand var) val (instance-closure-fields (get-instance-closure (left-operand var) state)) (lambda (v) state))]
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
       [(null? (top-layer state)) (state-update-var-CPS var val (cdr state) (lambda (v) (return (cons '() v))))]
+      [(null? (first-pair (top-layer state))) (state-update-var-CPS var val (rest-of-pairs state) (lambda (v) (return (cons '(()) v))))]
       [(eq? var (top-first-var-name state)) (begin (set-box! (cadr (first-pair (top-layer state))) val) (return state))]
       [else (state-update-var-CPS var val (rest-of-state state) (lambda (v) (return (cons (cons (first-pair (top-layer state)) (top-layer v)) (cdr v)))))])))
 
@@ -358,6 +361,7 @@
     (cond
       [(null? state) (error 'varnotdeclared "Variable not yet declared")]
       [(null? (top-layer state)) (value-get-var var (cdr state))]
+      [(null? (first-pair (top-layer state))) (value-get-var var (rest-of-pairs state))]
       [(eq? var (top-first-var-name state)) (unbox (cadr (first-pair (top-layer state))))]
       [else (value-get-var var (rest-of-state state))])))
 

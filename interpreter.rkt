@@ -19,7 +19,7 @@
 ;main interpret call that parses file and calls the main interpreter functionality
 (define interpret
   (lambda (filename class-name)
-    (interpreter-main (parser filename) (state-init) class-name)))
+    (interpreter-main (parser filename) (state-init) (read (open-input-string class-name)))))
 
 (define error-break (lambda(v) (error 'breakoutsideloop "Break statement not inside while loop")))
 (define error-continue (lambda (v) (error 'continueoutsideloop  "Continue statement not inside while loop")))
@@ -643,18 +643,18 @@
     (interpret (string-append (string-append "tests/test" num) ".txt") class-name)))
 
 ;main interpreter call
-(interpret testFile 'A)
+(interpret testFile "A")
 
-(test "1" 'A) ;15
-(test "2" 'A) ;12
-(test "3" 'A) ;125
-(test "4" 'A) ;36
-(test "5" 'A) ;54
-(test "6" 'A) ;110
-(test "7" 'C) ;26
-(test "8" 'Square) ;117
-(test "9" 'Square) ;32
-(test "10" 'List) ;15
-(test "11" 'List) ;123456
-(test "12" 'List) ;5285
-(test "13" 'C) ;-716
+(test "1" "A") ;15
+(test "2" "A") ;12
+(test "3" "A") ;125
+(test "4" "A") ;36
+(test "5" "A") ;54
+(test "6" "A") ;110
+(test "7" "C") ;26
+(test "8" "Square") ;117
+(test "9" "Square") ;32
+(test "10" "List") ;15
+(test "11" "List") ;123456
+(test "12" "List") ;5285
+(test "13" "C") ;-716
